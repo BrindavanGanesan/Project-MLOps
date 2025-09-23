@@ -1,0 +1,12 @@
+aws:
+  region: "eu-west-1"  # or your region
+  role_arn: "arn:aws:iam::353671347542:role/SageMakerRole"
+  bucket: "thebrowntiger"
+
+training:
+  framework_version: "1.2-1"
+  instance_type: "ml.t3.large"
+  use_spot: false
+
+evaluation:
+  test_size: 0.25
