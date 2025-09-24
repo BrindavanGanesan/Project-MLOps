@@ -10,8 +10,7 @@ def model_fn(model_dir):
     return joblib.load(model_path)
 
 def input_fn(request_body, content_type="application/json"):
-    # Accept JSON: {"instances": [[...feature vector...], ...]}
-    # or {"inputs":[...]} for single row
+   
     import json
     data = json.loads(request_body)
     if "instances" in data:

@@ -1,0 +1,5 @@
+[core]
+    remote = s3remote
+['remote "s3remote"']
+    url = s3://thebrowntiger/dvc
+    endpointurl = https://s3.eu-west-1.amazonaws.com
