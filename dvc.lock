@@ -1,0 +1,38 @@
+schema: '2.0'
+stages:
+  train:
+    cmd: python pipeline/run_training_job.py
+    deps:
+    - path: config/params.yaml
+      hash: md5
+      md5: ce71cb0de307fd64d5edc563d8a97ff6
+      size: 76
+    - path: pipeline/run_training_job.py
+      hash: md5
+      md5: 37efe42d5df4fa05e44d6e1185314097
+      size: 4425
+    - path: training/train.py
+      hash: md5
+      md5: e51c2614db3e39b35ec77d38f2cf0610
+      size: 4145
+    outs:
+    - path: artifacts/metrics/metrics.json
+      hash: md5
+      md5: efe30374a9fa687215bd621eb1adcc8e
+      size: 166
+  evaluate:
+    cmd: python pipeline/run_evaluation_job.py
+    deps:
+    - path: evaluation/evaluate.py
+      hash: md5
+      md5: 249179f16be21eec64b976accc2259ce
+      size: 2441
+    - path: pipeline/run_evaluation_job.py
+      hash: md5
+      md5: 8f252144978be491b82eeef490907352
+      size: 2064
+    outs:
+    - path: artifacts/eval/evaluation.json
+      hash: md5
+      md5: ed4ea6ed476c6c46549177aa568248a5
+      size: 56
