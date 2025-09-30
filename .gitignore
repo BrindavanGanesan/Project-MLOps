@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/
+
+# DVC
+*.dvc
+.cache/
+.dvc/
+artifacts/
+
+# SageMaker
+output/
+*.tar.gz
+
+# Virtual environment
+.venv/
+env/
+ENV/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AWS credentials (never commit these!)
+*.pem
+*.key
+.aws/

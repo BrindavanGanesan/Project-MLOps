@@ -1,6 +1,6 @@
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.processing import ProcessingInput, ProcessingOutput
-import os, yaml, boto3
+import os, yaml, boto3, json
 from sagemaker.session import Session
 
 
@@ -48,7 +48,15 @@ def main():
 
     print("✅ Evaluation job submitted. Check S3:", f"s3://{bucket}/evaluation/evaluation.json")
 
+    local_eval_dir = os.path.join("artifacts", "eval")
+    os.makedirs(local_eval_dir, exist_ok=True)
+    local_eval_path = os.path.join(local_eval_dir, "evaluation.json")
 
+    s3 = boto3.client("s3", region_name=region)
+    obj = s3.get_object(Bucket=bucket, Key="evaluation/evaluation.json")
+    with open(local_eval_path, "wb") as f:
+        f.write(obj["Body"].read())
+    print("Saved local metrics for DVC:", local_eval_path)
 
 if __name__ == "__main__":
     main()

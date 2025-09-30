@@ -1,0 +1,5 @@
+training:
+  test_size: 0.25
+  random_state: 42
+  clf:
+    max_iter: 1000
