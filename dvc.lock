@@ -3,14 +3,18 @@ stages:
   train:
     cmd: python pipeline/run_training_job.py
     deps:
+    - path: config/config.yaml
+      hash: md5
+      md5: b13e51060f3df1d19e70b43a2870a10d
+      size: 262
     - path: config/params.yaml
       hash: md5
       md5: ce71cb0de307fd64d5edc563d8a97ff6
       size: 76
     - path: pipeline/run_training_job.py
       hash: md5
-      md5: 37efe42d5df4fa05e44d6e1185314097
-      size: 4425
+      md5: e622fc3b603e13072fe5dddbc74554e3
+      size: 5947
     - path: training/train.py
       hash: md5
       md5: e51c2614db3e39b35ec77d38f2cf0610
@@ -20,6 +24,10 @@ stages:
       hash: md5
       md5: efe30374a9fa687215bd621eb1adcc8e
       size: 166
+    - path: artifacts/model/model.tar.gz
+      hash: md5
+      md5: 1fbfd3d0db8632780ec203bb8163a665
+      size: 1222
   evaluate:
     cmd: python pipeline/run_evaluation_job.py
     deps:

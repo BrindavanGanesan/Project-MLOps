@@ -97,9 +97,9 @@ def main():
     with mlflow.start_run(run_name="sagemaker-train"):
         mlflow.log_params(resolved_params)
         mlflow.log_metrics(metrics)
-        mlflow.sklearn.log_model(model, artifact_path="model")
+        mlflow.sklearn.log_model(model, artifact_path="model", registered_model_name="thesis-iris-model")
         mlflow.log_artifact(metrics_path, artifact_path="metrics")
-        print(f"📝 [MLflow] run logged to {mlruns_dir}")
+        print(f"📝 [MLflow] run logged and model registered as 'thesis-iris-model'")
 
 if __name__ == "__main__":
     main()

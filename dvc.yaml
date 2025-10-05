@@ -2,18 +2,17 @@ stages:
   train:
     cmd: python pipeline/run_training_job.py
     deps:
-      - pipeline/run_training_job.py
       - training/train.py
+      - pipeline/run_training_job.py
+      - config/config.yaml
       - config/params.yaml
-    metrics:
-      - artifacts/metrics/metrics.json:
-          cache: false
-
+    outs:
+      - artifacts/metrics/metrics.json
+      - artifacts/model/model.tar.gz 
   evaluate:
     cmd: python pipeline/run_evaluation_job.py
     deps:
-      - pipeline/run_evaluation_job.py
       - evaluation/evaluate.py
-    metrics:
-      - artifacts/eval/evaluation.json:
-          cache: false
+      - pipeline/run_evaluation_job.py
+    outs:
+      - artifacts/eval/evaluation.json

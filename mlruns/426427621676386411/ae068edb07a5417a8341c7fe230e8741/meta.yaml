@@ -1,0 +1,15 @@
+artifact_uri: file:///opt/ml/output/data/mlruns/426427621676386411/ae068edb07a5417a8341c7fe230e8741/artifacts
+end_time: 1759229202138
+entry_point_name: ''
+experiment_id: '426427621676386411'
+lifecycle_stage: active
+run_id: ae068edb07a5417a8341c7fe230e8741
+run_name: sagemaker-train
+run_uuid: ae068edb07a5417a8341c7fe230e8741
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1759229200211
+status: 3
+tags: []
+user_id: root
