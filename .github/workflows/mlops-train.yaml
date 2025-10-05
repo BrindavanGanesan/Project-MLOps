@@ -1,0 +1,77 @@
+name: SageMaker Retraining Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "training/**"
+      - "pipeline/**"
+      - "config/**"
+      - "data/**"
+      - "dvc.yaml"
+      - "config/params.yaml"
+  workflow_dispatch:  # allows manual trigger
+    inputs:
+      reason:
+        description: "Reason for triggering retrain"
+        required: false
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read    # To read repository code
+
+jobs:
+  retrain:
+    name: Run SageMaker Training & DVC pipeline
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
+      DVC_REMOTE: s3://thebrowntiger/dvcstore
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 🔐 Configure AWS OIDC (Secure, no keys)
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install dvc[s3] boto3 sagemaker mlflow pyyaml
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      # 🧠 Run the DVC pipeline (training + evaluation)
+      - name: Run DVC pipeline
+        run: dvc repro
+
+      # 📦 Push artifacts to DVC remote (S3)
+      - name: Push updated DVC outputs to remote
+        run: dvc push
+
+      # 🪣 Optional: Sync new metrics or model to S3 backup folder
+      - name: Upload new metrics to S3 backup
+        run: |
+          aws s3 cp artifacts/metrics/metrics.json s3://thebrowntiger/mlops-metrics/metrics-$(date +%Y%m%d-%H%M%S).json
+
+      # 📊 Optional: Register model in MLflow registry
+      - name: Register latest model in MLflow
+        run: |
+          echo "Registering model..."
+          mlflow models register -m "mlruns/$(ls mlruns | head -n1)/$(ls mlruns/* | head -n1)/artifacts/model" -n "thesis-iris"
