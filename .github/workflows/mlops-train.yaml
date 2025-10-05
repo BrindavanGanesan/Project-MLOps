@@ -74,4 +74,17 @@ jobs:
       - name: Register latest model in MLflow
         run: |
           echo "Registering model..."
-          mlflow models register -m "mlruns/$(ls mlruns | head -n1)/$(ls mlruns/* | head -n1)/artifacts/model" -n "thesis-iris"
+          python <<EOF
+          import mlflow
+          client = mlflow.tracking.MlflowClient()
+
+          experiment_name = "thesis-iris"
+          exp = client.get_experiment_by_name(experiment_name)
+          runs = client.search_runs(exp.experiment_id, order_by=["attributes.start_time DESC"], max_results=1)
+          latest_run = runs[0]
+          run_id = latest_run.info.run_id
+          model_uri = f"runs:/{run_id}/model"
+          print(f"Registering model from run {run_id} -> {model_uri}")
+          result = mlflow.register_model(model_uri, "sagemaker-model")
+          print("✅ Registered model:", result.name, "version:", result.version)
+          EOF
