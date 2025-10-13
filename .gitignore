@@ -28,6 +28,7 @@ output/
 env/
 ENV/
 venv/
+.env
 
 # OS
 .DS_Store
