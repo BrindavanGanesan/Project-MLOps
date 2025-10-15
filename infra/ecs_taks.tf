@@ -27,5 +27,5 @@ resource "aws_ecs_task_definition" "iris_task" {
     }
   ])
 
-  execution_role_arn = "arn:aws:iam::<your-account-id>:role/ecsTaskExecutionRole"
+  execution_role_arn = "arn:aws:iam::353671347542:role/ecsTaskExecutionRole"
 }
