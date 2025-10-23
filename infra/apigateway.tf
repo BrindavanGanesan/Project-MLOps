@@ -25,6 +25,9 @@ resource "aws_security_group" "vpc_link_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  tags = {
+    Name = "vpc-link-sg"
+  }
 }
 
 # Private integration via VPC Link to the NLB LISTENER ARN
