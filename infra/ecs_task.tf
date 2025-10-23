@@ -18,14 +18,25 @@ resource "aws_ecs_task_definition" "iris_task" {
         {
           containerPort = 8080
           hostPort      = 8080
+          protocol      = "tcp"
         }
       ]
       environment = [
         { name = "AWS_REGION", value = "eu-west-1" },
         { name = "MODEL_S3_URI", value = "s3://thebrowntiger/thesis-train-20250930-104353-2025-09-30-10-43-54-262/output/model.tar.gz" }
       ]
+
+      logConfiguration = {
+        logDriver = "awslogs",
+        options = {
+          "awslogs-group"         = "/ecs/iris-api-task"
+          "awslogs-region"        = "eu-west-1"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     }
   ])
 
   execution_role_arn = "arn:aws:iam::353671347542:role/ecsTaskExecutionRole"
+  task_role_arn      = "arn:aws:iam::353671347542:role/ecsTaskRole-iris-api"
 }
