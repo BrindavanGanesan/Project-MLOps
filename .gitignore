@@ -43,6 +43,8 @@ override.tf.json
 *.backup
 *.exe
 *.terraform.tfstate.lock.info
+terraform-provider-aws_v6.16.0_x5.exe
+
 # OS
 .DS_Store
 Thumbs.db
