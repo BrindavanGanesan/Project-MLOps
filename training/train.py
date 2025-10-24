@@ -90,9 +90,16 @@ def main():
     print("📊 Metrics:", metrics)
 
     # --- MLflow logging (stored in output/data/mlruns) ---
-    mlruns_dir = os.path.join(output_dir, "mlruns")
-    mlflow.set_tracking_uri(f"file:{mlruns_dir}")
+    # --- MLflow logging to S3 instead of local ephemeral storage ---
+    import datetime
+    mlflow_tracking_s3 = "s3://thebrowntiger/mlflow-tracking"
+
+    mlflow.set_tracking_uri(mlflow_tracking_s3)
     mlflow.set_experiment("thesis-iris")
+
+    print(f"📡 [MLflow] Using S3 tracking URI: {mlflow_tracking_s3}")
+    print(f"🧾 [MLflow] Experiment: thesis-iris | Run started at {datetime.datetime.utcnow().isoformat()}")
+
 
     with mlflow.start_run(run_name="sagemaker-train"):
         mlflow.log_params(resolved_params)

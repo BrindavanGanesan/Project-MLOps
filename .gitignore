@@ -18,6 +18,8 @@ build/
 .cache/
 .dvc/
 artifacts/
+mlruns/
+artifacts/
 
 # SageMaker
 output/
