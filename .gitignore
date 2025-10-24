@@ -42,6 +42,7 @@ override.tf.json
 *.tfplan
 *.backup
 *.exe
+*.terraform.tfstate.lock.info
 # OS
 .DS_Store
 Thumbs.db
