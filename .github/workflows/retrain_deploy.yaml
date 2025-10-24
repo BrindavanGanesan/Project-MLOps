@@ -1,0 +1,125 @@
+name: SageMaker Retraining & ECS Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "training/**"
+      - "pipeline/**"
+      - "config/**"
+      - "data/**"
+      - "dvc.yaml"
+      - "config/params.yaml"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for triggering retrain"
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  retrain_and_deploy:
+    name: Retrain on SageMaker + Deploy to ECS
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
+      DVC_REMOTE: s3://thebrowntiger/dvcstore
+      ECR_REPOSITORY: iris-api
+      ECS_CLUSTER: iris-api-cluster
+      ECS_SERVICE: iris-api-service
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 🔐 Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install dvc[s3] boto3 sagemaker mlflow pyyaml
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      # 🧠 Step 1: Retrain Model
+      - name: Run DVC pipeline
+        run: dvc repro
+
+      - name: Push updated DVC outputs to remote
+        run: dvc push
+
+      - name: Upload new metrics to S3 backup
+        run: |
+          aws s3 cp artifacts/metrics/metrics.json s3://thebrowntiger/mlops-metrics/metrics-$(date +%Y%m%d-%H%M%S).json
+
+      - name: Register latest model in MLflow
+        run: |
+          echo "Registering model..."
+          python <<EOF
+          import mlflow
+          client = mlflow.tracking.MlflowClient()
+          exp = client.get_experiment_by_name("thesis-iris")
+          runs = client.search_runs(exp.experiment_id, order_by=["attributes.start_time DESC"], max_results=1)
+          latest_run = runs[0]
+          run_id = latest_run.info.run_id
+          model_uri = f"runs:/{run_id}/model"
+          print(f"Registering model from run {run_id} -> {model_uri}")
+          result = mlflow.register_model(model_uri, "sagemaker-model")
+          print("✅ Registered model:", result.name, "version:", result.version)
+          EOF
+
+      # 🐳 Step 2: Build and Push Docker Image to ECR
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::7}
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+          echo "IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Push Docker image to ECR
+        run: |
+          docker push ${{ env.IMAGE_URI }}
+          docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+
+      # 🚀 Step 3: Force ECS Redeployment
+      - name: Force ECS service to deploy new image
+        run: |
+          echo "Triggering ECS redeployment..."
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      # ✅ Optional: Deployment confirmation
+      - name: Confirm ECS service update
+        run: |
+          aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE \
+            --region $AWS_REGION \
+            --query "services[0].deployments"

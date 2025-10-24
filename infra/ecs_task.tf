@@ -4,10 +4,10 @@ resource "aws_ecs_cluster" "iris_cluster" {
 
 resource "aws_ecs_task_definition" "iris_task" {
   family                   = "iris-api-task"
-  requires_compatibilities  = ["FARGATE"]
-  network_mode              = "awsvpc"
-  cpu                       = "512"
-  memory                    = "1024"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "512"
+  memory                   = "1024"
 
   container_definitions = jsonencode([
     {

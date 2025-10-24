@@ -86,7 +86,7 @@ resource "aws_security_group" "ecs_sg" {
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # OK for public ECS tasks
+    cidr_blocks = ["0.0.0.0/0"] # OK for public ECS tasks
   }
 
   ingress {

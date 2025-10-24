@@ -29,7 +29,19 @@ env/
 ENV/
 venv/
 .env
-
+*.terraform/
+**/.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+crash.log
+override.tf
+override.tf.json
+*.tfvars
+*.tfvars.json
+*.tfplan
+*.backup
+*.exe
 # OS
 .DS_Store
 Thumbs.db
