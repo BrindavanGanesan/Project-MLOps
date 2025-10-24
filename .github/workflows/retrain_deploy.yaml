@@ -75,31 +75,43 @@ jobs:
         run: |
           echo "Registering model..."
           python <<'EOF'
-          import mlflow, os, sys
-          mlflow.set_tracking_uri("s3://thebrowntiger/mlflow-tracking")
+          import mlflow, os, sys, glob
+
+          # Find the latest local mlruns folder copied from SageMaker
+          mlruns_dirs = sorted(glob.glob("artifacts/sm-output/*/extracted/mlruns"), reverse=True)
+          if not mlruns_dirs:
+              print("⚠️ No local mlruns found — skipping registration.")
+              sys.exit(0)
+
+          latest_mlruns = mlruns_dirs[0]
+          print(f"📂 Using MLflow tracking dir: {latest_mlruns}")
+
+          mlflow.set_tracking_uri(f"file:{latest_mlruns}")
+          mlflow.set_registry_uri(f"file:{latest_mlruns}")
           exp_name = "thesis-iris"
+
           client = mlflow.tracking.MlflowClient()
           exp = client.get_experiment_by_name(exp_name)
           if not exp:
-            print(f"⚠️ Experiment '{exp_name}' not found in MLflow.")
-            sys.exit(0)
+              print(f"⚠️ Experiment '{exp_name}' not found in {latest_mlruns}.")
+              sys.exit(0)
 
           runs = client.search_runs(exp.experiment_id, order_by=["attributes.start_time DESC"], max_results=1)
           if not runs:
-            print("⚠️ No runs found — skipping model registration.")
-            sys.exit(0)
+              print("⚠️ No runs found — skipping model registration.")
+              sys.exit(0)
 
           latest_run = runs[0]
-          run_id = latest_run.info.run_id 
+          run_id = latest_run.info.run_id
           model_uri = f"runs:/{run_id}/model"
           print(f"Registering model from run {run_id} ({model_uri}) ...")
 
           try:
-            result = mlflow.register_model(model_uri, "sagemaker-model")
-            print("✅ Registered model:", result.name, "version:", result.version)
+              result = mlflow.register_model(model_uri, "sagemaker-model")
+              print("✅ Registered model:", result.name, "version:", result.version)
           except Exception as e:
-            print("⚠️ Skipping model registration:", e)
-            sys.exit(0)
+              print("⚠️ Skipping model registration:", e)
+              sys.exit(0)
           EOF
 
 
