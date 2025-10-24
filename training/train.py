@@ -92,21 +92,19 @@ def main():
     # --- MLflow logging (stored in output/data/mlruns) ---
     # --- MLflow logging to S3 instead of local ephemeral storage ---
     import datetime
-    mlflow_tracking_s3 = "s3://thebrowntiger/mlflow-tracking"
-
-    mlflow.set_tracking_uri(mlflow_tracking_s3)
+    mlflow_tracking_dir = "/opt/ml/output/data/mlruns"
+    mlflow.set_tracking_uri(f"file:{mlflow_tracking_dir}")
     mlflow.set_experiment("thesis-iris")
+    os.environ["MLFLOW_S3_ENDPOINT_URL"] = "https://s3.eu-west-1.amazonaws.com"
+    mlflow.set_registry_uri(f"file:{mlflow_tracking_dir}")  # local registry
+    print(f"📊 [MLflow] tracking to {mlflow_tracking_dir}")
 
-    print(f"📡 [MLflow] Using S3 tracking URI: {mlflow_tracking_s3}")
-    print(f"🧾 [MLflow] Experiment: thesis-iris | Run started at {datetime.datetime.utcnow().isoformat()}")
-
-
-    with mlflow.start_run(run_name="sagemaker-train"):
+    with mlflow.start_run(run_name=f"sagemaker-train-{datetime.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"):
         mlflow.log_params(resolved_params)
         mlflow.log_metrics(metrics)
-        mlflow.sklearn.log_model(model, artifact_path="model", registered_model_name="thesis-iris-model")
+        mlflow.sklearn.log_model(model, artifact_path="model")  # don't register here
         mlflow.log_artifact(metrics_path, artifact_path="metrics")
-        print(f"📝 [MLflow] run logged and model registered as 'thesis-iris-model'")
+        print("✅ [MLflow] Run logged successfully.")
 
 if __name__ == "__main__":
     main()
