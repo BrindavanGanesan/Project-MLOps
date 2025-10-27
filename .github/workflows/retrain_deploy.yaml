@@ -65,6 +65,7 @@ jobs:
       - name: Run quick sanity tests
         run: |
           echo "Running lightweight tests before training..."
+          pip install pytest -q
           pytest -q || exit 1
 
       # 🧠 Step 1: Retrain Model
