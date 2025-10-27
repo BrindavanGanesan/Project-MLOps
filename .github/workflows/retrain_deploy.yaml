@@ -60,6 +60,13 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
+    # 🧪 STEP 0 — BASIC QUALITY CHECKS
+      # Why: Quickly catches broken imports/tests before wasting money on SageMaker.
+      - name: Run quick sanity tests
+        run: |
+          echo "Running lightweight tests before training..."
+          pytest -q || exit 1
+
       # 🧠 Step 1: Retrain Model
       - name: Run DVC pipeline
         run: dvc repro
@@ -70,6 +77,28 @@ jobs:
       - name: Upload new metrics to S3 backup
         run: |
           aws s3 cp artifacts/metrics/metrics.json s3://thebrowntiger/mlops-metrics/metrics-$(date +%Y%m%d-%H%M%S).json
+
+
+       # ✅ STEP 1.5 — METRIC GATE
+      # Why: Ensures new model performs at least as well as the previous "champion"
+      - name: Compare metrics with champion
+        run: |
+          NEW=artifacts/metrics/metrics.json
+          aws s3 cp s3://thebrowntiger/champion/metrics.json champion.json || echo '{"accuracy":0}' > champion.json
+          python - <<'PY'
+          import json, sys
+          new=json.load(open("artifacts/metrics/metrics.json"))
+          old=json.load(open("champion.json"))
+          thr=-0.005  # allow up to 0.5% drop
+          delta=new.get("accuracy",0)-old.get("accuracy",0)
+          print(f"Champion={old.get('accuracy')} New={new.get('accuracy')} Δ={delta}")
+          sys.exit(0 if delta>=thr else 1)
+          PY
+
+      - name: Promote new champion (optional)
+        if: ${{ success() }}
+        run: aws s3 cp artifacts/metrics/metrics.json s3://thebrowntiger/champion/metrics.json
+
 
       - name: Register latest model in MLflow
         run: |
@@ -151,3 +180,17 @@ jobs:
             --services $ECS_SERVICE \
             --region $AWS_REGION \
             --query "services[0].deployments"
+      
+      # ✅ STEP 5 — POST DEPLOY SMOKE TEST
+      # Why: Confirms the container is reachable and serving /predict before marking the run successful
+      - name: Smoke test
+        run: |
+          set -e
+          TASK_ARN=$(aws ecs list-tasks --cluster "$ECS_CLUSTER" --service-name "$ECS_SERVICE" --query 'taskArns[0]' --output text)
+          IP=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN" \
+              --query 'tasks[0].attachments[0].details[?name==`publicIPv4Address`].value' --output text)
+          echo "Hitting http://$IP:8080/healthz"
+          curl -fsS "http://$IP:8080/healthz"
+          echo "Hitting /predict"
+          curl -fsS -X POST "http://$IP:8080/predict" -H "Content-Type: application/json" \
+            -d '{"data":[[5.1,3.5,1.4,0.2]]}' | jq .
