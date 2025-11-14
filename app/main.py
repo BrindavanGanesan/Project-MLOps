@@ -69,6 +69,22 @@ def ping():
     return {"status": "ok"}
 
 @app.post("/predict")
-def predict(req: PredictRequest):
-    preds = _model.predict(req.data).tolist()
-    return {"predictions": preds}
+def predict(request: dict):
+
+    data = request["data"]
+    pred = int(_model.predict(data)[0])
+
+    # --- Prometheus metrics ---
+    registry = CollectorRegistry()
+    prediction_metric = Gauge(
+        "iris_prediction_count_total",
+        "Total predictions made by class",
+        ["class_label"],
+        registry=registry
+    )
+
+    prediction_metric.labels(class_label=str(pred)).inc()
+    push_to_gateway(PUSHGATEWAY_URL, job="iris_api", registry=registry)
+    # ---------------------------
+
+    return {"predictions": [pred]}
