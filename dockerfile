@@ -16,7 +16,7 @@ WORKDIR /app
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir numpy==1.24.1 scikit-learn==1.2.1 joblib==1.3.2 boto3 fastapi uvicorn[standard]
-
+RUN pip install prometheus-client
 # Copy app
 COPY app/ ./app/
 
