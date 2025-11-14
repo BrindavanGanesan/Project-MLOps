@@ -1,13 +1,16 @@
 # app/main.py
 import os, io, tarfile, tempfile, json, joblib, boto3
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
+
 
 app = FastAPI(title="Iris Classifier", version="1.0")
 
 MODEL_S3_URI = os.getenv("MODEL_S3_URI")  # e.g. s3://thebrowntiger/<job>/output/model.tar.gz
 AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
+PUSHGATEWAY_URL = "http://108.130.158.94:9091"
 
 _model = None
 
