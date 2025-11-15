@@ -14,7 +14,7 @@ build/
 .vscode/
 
 # DVC
-*.dvc
+.dvc
 .cache/
 .dvc/
 artifacts/

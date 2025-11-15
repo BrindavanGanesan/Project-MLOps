@@ -1,0 +1,89 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "iris-mlops",
+    "title": "Iris MLOps Monitoring Dashboard",
+    "timezone": "browser",
+    "schemaVersion": 36,
+    "version": 1,
+    "refresh": "10s",
+
+    "panels": [
+      {
+        "type": "stat",
+        "title": "Total Predictions",
+        "gridPos": { "x": 0, "y": 0, "w": 6, "h": 3 },
+        "targets": [
+          {
+            "expr": "sum(iris_prediction_count_total)",
+            "legendFormat": "Total"
+          }
+        ]
+      },
+
+      {
+        "type": "bargraph",
+        "title": "Predictions by Class",
+        "gridPos": { "x": 6, "y": 0, "w": 12, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum by(class_label) (iris_prediction_count_total)"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal"
+        }
+      },
+
+      {
+        "type": "timeseries",
+        "title": "Prediction Rate per Class (per minute)",
+        "gridPos": { "x": 0, "y": 6, "w": 24, "h": 6 },
+        "targets": [
+          {
+            "expr": "sum by(class_label) (rate(iris_prediction_count_total[1m]))"
+          }
+        ],
+        "legend": {
+          "showLegend": true
+        }
+      },
+
+      {
+        "type": "gauge",
+        "title": "Drift Detector – Class 0 Ratio",
+        "gridPos": { "x": 0, "y": 12, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "sum(iris_prediction_count_total{class_label=\"0\"}) / sum(iris_prediction_count_total)"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "calcs": ["last"]
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.40 },
+              { "color": "red", "value": 0.60 }
+            ]
+          }
+        }
+      },
+
+      {
+        "type": "stat",
+        "title": "Pushgateway Status",
+        "gridPos": { "x": 6, "y": 12, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "up{job=\"pushgateway\"}"
+          }
+        ]
+      }
+    ]
+  }
+}
+
