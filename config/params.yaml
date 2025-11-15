@@ -1,7 +1,23 @@
 training:
-  test_size: 0.25
+  test_size: 0.20
   random_state: 42
+
+  # XGBoost hyperparameters
   xgb:
-    n_estimators: 200
-    max_depth: 6
-    learning_rate: 0.1
+    n_estimators: 200          # Good performance/cost balance
+    max_depth: 5               # Prevents overfitting on Adult Census
+    learning_rate: 0.1         # Standard learning rate for structured data
+    # Additional internal defaults:
+    # subsample: 0.9 (set in train.py)
+    # colsample_bytree: 0.9 (set in train.py)
+    # tree_method: hist (set in train.py)
+
+aws:
+  region: "eu-west-1"
+  role_arn: "arn:aws:iam::<YOUR_ACCOUNT>:role/service-role/SageMakerExecutionRole"
+  bucket: "thebrowntiger"
+  instance_type: "ml.m5.large"    # Balanced CPU cost/performance
+  framework_version: "1.2-1"      # SKLearn container version
+
+evaluation:
+  test_size: 0.20
