@@ -60,6 +60,10 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
+      - name: Pull dataset from DVC remote
+        run: |
+          dvc pull data/adult.csv.dvc
+
     # 🧪 STEP 0 — BASIC QUALITY CHECKS
       # Why: Quickly catches broken imports/tests before wasting money on SageMaker.
       - name: Run quick sanity tests
