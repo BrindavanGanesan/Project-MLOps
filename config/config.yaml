@@ -1,5 +1,5 @@
 aws:
-  region: "eu-west-1"  # or your region
+  region: "eu-west-1" 
   role_arn: "arn:aws:iam::353671347542:role/SageMakerRole"
   bucket: "thebrowntiger"
 
