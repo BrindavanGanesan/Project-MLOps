@@ -4,9 +4,11 @@ aws:
   bucket: "thebrowntiger"
 
 training:
-  framework_version: "1.2-1"
-  instance_type: "ml.t3.large"
+  test_size: 0.2
+  random_state: 42
   use_spot: false
 
-evaluation:
-  test_size: 0.25
+  xgb:
+    n_estimators: 200
+    max_depth: 5
+    learning_rate: 0.1
