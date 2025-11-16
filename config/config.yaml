@@ -4,6 +4,7 @@ aws:
   bucket: "thebrowntiger"
 
 training:
+  image_uri: "353671347542.dkr.ecr.eu-west-1.amazonaws.com/thesis-training:latest"
   test_size: 0.2
   random_state: 42
   use_spot: false
