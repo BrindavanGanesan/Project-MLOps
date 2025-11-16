@@ -1,35 +1,29 @@
 FROM python:3.10-slim
 
-# Work inside SageMaker expected directory
+# Required folders for SageMaker
+RUN mkdir -p /opt/ml/code
 WORKDIR /opt/ml/code
 
-# Install system-level dependencies
+# Install system deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    gcc \
-    g++ \
-    make \
+    wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy training requirements
+# Copy requirements
 COPY requirements.txt .
 
-# Install Python deps REQUIRED FOR TRAINING ONLY
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir \
-        numpy==1.24.1 \
-        pandas==1.5.3 \
-        scikit-learn==1.2.1 \
-        xgboost==1.7.6 \
-        mlflow==2.12.2 \
-        boto3 \
-        joblib
+# Install Python deps
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir xgboost==1.7.6 pandas==1.5.3 scikit-learn==1.2.1 numpy==1.24.1 mlflow boto3 pyyaml
 
-# Copy training script
+# Copy training code
 COPY train.py .
 
-# Ensure code is available for Python
-ENV PYTHONPATH=/opt/ml/code
+# SageMaker requirement:
+# This tells SageMaker which script is the entry script
+ENV SAGEMAKER_PROGRAM=train.py
 
-# SageMaker training entry point
-ENTRYPOINT ["python3", "train.py"]
+# SageMaker runs train.py automatically
+CMD ["train.py"]
