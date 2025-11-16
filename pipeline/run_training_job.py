@@ -4,7 +4,7 @@ import yaml
 from pathlib import Path
 from datetime import datetime
 from sagemaker.session import Session
-from sagemaker.xgboost import XGBoost
+from sagemaker.estimator import Estimator
 
 CFG_PATH = os.path.join("config", "config.yaml")
 
@@ -61,21 +61,18 @@ def main():
     use_spot = cfg.get("training", {}).get("use_spot", False)
 
     # ✔ XGBoost estimator (correct container)
-    est = XGBoost(
-        entry_point="train.py",
-        source_dir="training",
-        role=role_arn,
-        instance_type="ml.m5.large",
-        instance_count=1,
-        framework_version="1.7-1",
-        py_version="py3",
-        sagemaker_session=sm_session,
-        base_job_name=base_job_name,
-        hyperparameters={
-            "test-size": cfg["training"]["test_size"],
-            "random-state": cfg["training"]["random_state"],
-        }
-    )
+    est = Estimator(
+    image_uri=f"353671347542.dkr.ecr.{region}.amazonaws.com/thesis-training:latest",
+    role=role_arn,
+    instance_type="ml.m5.large",
+    instance_count=1,
+    hyperparameters={
+        "test-size": cfg["training"]["test_size"],
+        "random-state": cfg["training"]["random_state"],
+    },
+    output_path=f"s3://{bucket}/training-output/",
+    sagemaker_session=sm_session,
+)
 
     print(f"Starting training job in {region} with role {role_arn} …")
     est.fit(wait=True)
