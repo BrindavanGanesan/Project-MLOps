@@ -1,19 +1,20 @@
 FROM python:3.10-slim
 
-# Required SageMaker folder
+# SageMaker-required directory
 RUN mkdir -p /opt/ml/code
 WORKDIR /opt/ml/code
 
-# Install system deps
+# OS dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential wget curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python requirements
-COPY requirements.txt .
+# Copy requirements (from project root)
+COPY docker/training/requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install ML packages pin-compatible for SageMaker
+# ML compatible versions
 RUN pip install --no-cache-dir \
     xgboost==1.7.6 \
     pandas==1.5.3 \
@@ -21,12 +22,19 @@ RUN pip install --no-cache-dir \
     numpy==1.24.1 \
     mlflow boto3 pyyaml joblib
 
-# Copy training script (from training/train.py → container train.py)
-COPY ../../training/train.py /opt/ml/code/train.py
+# --------------------------------------------------------
+# 🔥 Copy training script from correct location
+# --------------------------------------------------------
+# This path is relative to build context (project root)
+COPY docker/training/train.py /opt/ml/code/train.py
 
-# Create SageMaker launcher
+# --------------------------------------------------------
+# 🔥 Create SageMaker launcher script
+# --------------------------------------------------------
 RUN echo '#!/usr/bin/env bash' > /opt/ml/code/train && \
     echo 'python3 /opt/ml/code/train.py "$@"' >> /opt/ml/code/train && \
-    chmod +x /opt/ml/code/train
+    chmod +x /opt/ml/code/train && \
+    chmod +x /opt/ml/code/train.py
 
-# Do NOT set ENTRYPOINT or CMD — SageMaker invokes /opt/ml/code/train automatically
+# SageMaker automatically calls /opt/ml/code/train
+# NO ENTRYPOINT OR CMD
