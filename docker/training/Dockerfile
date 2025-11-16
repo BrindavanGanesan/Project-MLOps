@@ -1,29 +1,34 @@
 FROM python:3.10-slim
 
-# Required folders for SageMaker
+# SageMaker training code lives here
 RUN mkdir -p /opt/ml/code
 WORKDIR /opt/ml/code
 
-# Install system deps
+# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential wget curl && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
+# Install Python requirements
 COPY requirements.txt .
-
-# Install Python deps
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir xgboost==1.7.6 pandas==1.5.3 scikit-learn==1.2.1 numpy==1.24.1 mlflow boto3 pyyaml
 
-# Copy training code
-COPY train.py .
+# Install ML dependencies
+RUN pip install --no-cache-dir \
+    xgboost==1.7.6 \
+    pandas==1.5.3 \
+    scikit-learn==1.2.1 \
+    numpy==1.24.1 \
+    mlflow \
+    boto3 \
+    pyyaml
 
-# SageMaker requirement:
-# This tells SageMaker which script is the entry script
-ENV SAGEMAKER_PROGRAM=train.py
+# Copy train script
+COPY train.py /opt/ml/code/train.py
 
-# SageMaker runs train.py automatically
-CMD ["train.py"]
+# Make a copy without extension (SageMaker executes THIS!)
+RUN cp /opt/ml/code/train.py /opt/ml/code/train && \
+    chmod +x /opt/ml/code/train
+
+# SageMaker will call /opt/ml/code/train automatically
+ENTRYPOINT ["python3", "/opt/ml/code/train"]
