@@ -60,9 +60,11 @@ def main():
 
     use_spot = cfg.get("training", {}).get("use_spot", False)
 
+    
+    image_uri = "353671347542.dkr.ecr.eu-west-1.amazonaws.com/thesis-training:latest"
     # ✔ XGBoost estimator (correct container)
     est = Estimator(
-    image_uri=f"353671347542.dkr.ecr.{region}.amazonaws.com/thesis-training:latest",
+    image_uri=image_uri,
     role=role_arn,
     instance_type="ml.m5.large",
     instance_count=1,
