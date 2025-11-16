@@ -4,12 +4,13 @@ stages:
     deps:
       - training/train.py
       - pipeline/run_training_job.py
-      - config/params.yaml
+      - config/config.yaml
       - data/adult.csv
     outs:
       - artifacts/metrics/metrics.json
       - artifacts/model/model.tar.gz
-      - mlruns
+      - mlruns/
+
   evaluate:
     cmd: python pipeline/run_evaluation_job.py
     deps:

@@ -1,6 +1,0 @@
-artifact_location: file:///opt/ml/output/data/mlruns/725428893701366985
-creation_time: 1759098123286
-experiment_id: '725428893701366985'
-last_update_time: 1759098123286
-lifecycle_stage: active
-name: thesis-iris
