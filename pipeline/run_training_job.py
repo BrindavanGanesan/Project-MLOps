@@ -60,7 +60,7 @@ def main():
 
     use_spot = cfg.get("training", {}).get("use_spot", False)
 
-    
+
     image_uri = "353671347542.dkr.ecr.eu-west-1.amazonaws.com/thesis-training:latest"
     # ✔ XGBoost estimator (correct container)
     est = Estimator(
@@ -68,12 +68,14 @@ def main():
     role=role_arn,
     instance_type="ml.m5.large",
     instance_count=1,
+    entry_point="train.py",
+    base_job_name=base_job_name,
+    sagemaker_session=sm_session,
     hyperparameters={
         "test-size": cfg["training"]["test_size"],
         "random-state": cfg["training"]["random_state"],
     },
     output_path=f"s3://{bucket}/training-output/",
-    sagemaker_session=sm_session,
 )
 
     print(f"Starting training job in {region} with role {role_arn} …")
