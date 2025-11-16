@@ -10,7 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy training code
-COPY train.py .
+COPY docker/training/train.py .
 
 ENV PYTHONPATH=/opt/ml/code
 ENTRYPOINT ["python3", "train.py"]
