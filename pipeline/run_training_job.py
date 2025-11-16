@@ -68,18 +68,18 @@ def main():
 
     # DO NOT pass entry_point for BYOC
     est = Estimator(
-        image_uri=image_uri,
-        role=role_arn,
-        instance_type="ml.m5.large",
-        instance_count=1,
-        sagemaker_session=sm_session,
-        base_job_name=base_job_name,
-        hyperparameters={
-            "test-size": cfg["training"]["test_size"],
-            "random-state": cfg["training"]["random_state"]
-        },
-        output_path=f"s3://{bucket}/training-output/"
-    )
+    image_uri=image_uri,
+    role=role_arn,
+    instance_type="ml.m5.large",
+    instance_count=1,
+    base_job_name=base_job_name,
+    sagemaker_session=sm_session,
+    hyperparameters={
+        "test-size": cfg["training"]["test_size"],
+        "random-state": cfg["training"]["random_state"],
+    },
+    output_path=f"s3://{bucket}/training-output/"
+)
 
     print(f"🚀 Starting training job: {base_job_name}")
     est.fit(wait=True)
