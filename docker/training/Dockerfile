@@ -10,10 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# copy training script
+# Copy training script
 COPY train.py /opt/ml/code/train.py
 
-# SageMaker requirement — executable entry script without extension
-RUN cp /opt/ml/code/train.py /opt/ml/code/train && chmod +x /opt/ml/code/train
+# Make train.py executable
+RUN chmod +x /opt/ml/code/train.py
 
-ENTRYPOINT ["python3", "/opt/ml/code/train"]
+# SageMaker will call: python train.py <args>
+CMD ["python3", "/opt/ml/code/train.py"]
