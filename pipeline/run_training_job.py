@@ -1,4 +1,5 @@
 # pipeline/run_training_job.py
+
 import os, io, time, tarfile, shutil, boto3, botocore
 import yaml
 from pathlib import Path
@@ -6,132 +7,127 @@ from datetime import datetime
 from sagemaker.session import Session
 from sagemaker.estimator import Estimator
 
-CFG_PATH = os.path.join("config", "config.yaml")
+
+CFG_PATH = "config/config.yaml"
+
 
 def load_cfg(path=CFG_PATH):
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r") as f:
         return yaml.safe_load(f)
 
-def parse_s3_uri(uri: str):
-    assert uri.startswith("s3://"), f"Not an s3:// URI: {uri}"
-    rest = uri[5:]
-    bucket, key = rest.split("/", 1)
+
+def parse_s3_uri(uri):
+    assert uri.startswith("s3://")
+    bucket, key = uri[5:].split("/", 1)
     return bucket, key
 
-def wait_for_key(s3, bucket, key, retries=12, sleep_s=2):
+
+def wait_for_key(s3, bucket, key, retries=20, sleep_s=3):
     for _ in range(retries):
         try:
             s3.head_object(Bucket=bucket, Key=key)
             return True
         except botocore.exceptions.ClientError as e:
-            if e.response.get("Error", {}).get("Code") == "404":
+            if e.response["Error"]["Code"] == "404":
                 time.sleep(sleep_s)
                 continue
             raise
     return False
 
-def mkdir(p: Path):
+
+def mkdir(p):
+    p = Path(p)
     p.mkdir(parents=True, exist_ok=True)
     return p
 
-def copy_tree(src: Path, dst: Path):
-    """Merge-copy directory tree while preserving structure."""
+
+def copy_tree(src, dst):
     for root, _, files in os.walk(src):
         rel = Path(root).relative_to(src)
-        tgt = dst / rel
-        tgt.mkdir(parents=True, exist_ok=True)
-        for f in files:
-            shutil.copy2(Path(root) / f, tgt / f)
+        d = Path(dst) / rel
+        d.mkdir(parents=True, exist_ok=True)
+        for file in files:
+            shutil.copy2(Path(root) / file, d / file)
+
 
 def main():
+
     cfg = load_cfg()
+
     region   = cfg["aws"]["region"]
     role_arn = cfg["aws"]["role_arn"]
     bucket   = cfg["aws"]["bucket"]
 
-    assert role_arn.startswith("arn:aws:iam::"), "role_arn looks invalid"
-    assert bucket, "bucket must be set in config.yaml"
-
     boto_sess  = boto3.Session(region_name=region)
-    sm_session = Session(boto_session=boto_sess, default_bucket=bucket)
+    sm_session = Session(boto_session=boto_sess)
 
-    job_suffix   = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    base_job_name = f"thesis-train-{job_suffix}"
+    image_uri = cfg["training"]["image_uri"]
 
-    use_spot = cfg.get("training", {}).get("use_spot", False)
+    job_suffix = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    base_job_name = f"thesis-training-{job_suffix}"
 
-
-    image_uri = "353671347542.dkr.ecr.eu-west-1.amazonaws.com/thesis-training:latest"
-    # ✔ XGBoost estimator (correct container)
+    # DO NOT pass entry_point for BYOC
     est = Estimator(
-    image_uri=image_uri,
-    role=role_arn,
-    instance_type="ml.m5.large",
-    instance_count=1,
-    entry_point="train.py",
-    base_job_name=base_job_name,
-    sagemaker_session=sm_session,
-    hyperparameters={
-        "test-size": cfg["training"]["test_size"],
-        "random-state": cfg["training"]["random_state"],
-    },
-    output_path=f"s3://{bucket}/training-output/",
-)
+        image_uri=image_uri,
+        role=role_arn,
+        instance_type="ml.m5.large",
+        instance_count=1,
+        sagemaker_session=sm_session,
+        base_job_name=base_job_name,
+        hyperparameters={
+            "test-size": cfg["training"]["test_size"],
+            "random-state": cfg["training"]["random_state"]
+        },
+        output_path=f"s3://{bucket}/training-output/"
+    )
 
-    print(f"Starting training job in {region} with role {role_arn} …")
+    print(f"🚀 Starting training job: {base_job_name}")
     est.fit(wait=True)
 
-    job_name = est.latest_training_job.name
-    model_s3 = est.model_data
-    print("\n✅ Training job finished.")
-    print("Job name:", job_name)
-    print("Model artifact S3:", model_s3)
+    # ---------------------------
+    # Download training artifacts
+    # ---------------------------
 
-    # ---------- Fetch output.tar.gz ----------
+    model_s3 = est.model_data
     bucket_name, model_key = parse_s3_uri(model_s3)
-    output_tar_key = model_key.replace("/output/model.tar.gz", "/output/output.tar.gz")
+
+    output_tar_key = model_key.replace("model.tar.gz", "output.tar.gz")
 
     s3 = boto3.client("s3", region_name=region)
-    print("Looking for training outputs tar:", f"s3://{bucket_name}/{output_tar_key}")
-    if not wait_for_key(s3, bucket_name, output_tar_key):
-        raise RuntimeError(f"output.tar.gz not found yet at s3://{bucket_name}/{output_tar_key}")
 
+    print(f"⏳ Waiting for output.tar.gz at: s3://{bucket_name}/{output_tar_key}")
+
+    if not wait_for_key(s3, bucket_name, output_tar_key):
+        raise RuntimeError("output.tar.gz missing from SageMaker output")
+
+    # download output.tar.gz
     obj = s3.get_object(Bucket=bucket_name, Key=output_tar_key)
     data_bytes = obj["Body"].read()
 
-    # Prepare local dirs
-    run_root        = mkdir(Path("artifacts") / "sm-output" / job_name)
-    local_output_tar = run_root / "output.tar.gz"
-    local_output_tar.write_bytes(data_bytes)
+    run_dir = mkdir(f"artifacts/sm-output/{base_job_name}")
+    output_tar_file = run_dir / "output.tar.gz"
+    output_tar_file.write_bytes(data_bytes)
 
-    extracted_dir = mkdir(run_root / "extracted")
+    extracted_dir = mkdir(run_dir / "extracted")
 
-    # Extract
     with tarfile.open(fileobj=io.BytesIO(data_bytes), mode="r:gz") as tar:
         tar.extractall(extracted_dir)
 
-    # Copy metrics
-    first_metrics = next(extracted_dir.rglob("metrics.json"))
-    local_metrics_dir = mkdir(Path("artifacts") / "metrics")
-    local_metrics_path = local_metrics_dir / "metrics.json"
-    shutil.copy2(first_metrics, local_metrics_path)
-    print("✅ Saved local metrics for DVC:", local_metrics_path)
+    # metrics.json
+    metrics_json = next(extracted_dir.rglob("metrics.json"))
+    shutil.copy2(metrics_json, mkdir("artifacts/metrics") / "metrics.json")
 
-    # Copy model artifact for DVC
-    local_model_dir = mkdir(Path("artifacts") / "model")
-    local_model_path = local_model_dir / "model.tar.gz"
-    s3.download_file(bucket_name, model_key, local_model_path)
-    print("✅ Saved model artifact for DVC:", local_model_path)
+    # model.tar.gz
+    s3.download_file(bucket_name, model_key, "artifacts/model/model.tar.gz")
 
-    # Copy MLflow runs
-    mlruns_candidates = [p for p in extracted_dir.rglob("mlruns") if p.is_dir()]
-    if mlruns_candidates:
-        src_mlruns = mlruns_candidates[0]
-        dst_mlruns = mkdir(Path("mlruns"))
-        copy_tree(src_mlruns, dst_mlruns)
-        print(f"📝 Copied MLflow runs → {dst_mlruns}")
+    # mlruns
+    mlruns = list(extracted_dir.rglob("mlruns"))
+    if mlruns:
+        copy_tree(mlruns[0], mkdir("mlruns"))
+        print("📂 Copied MLflow runs")
     else:
-        print("ℹ️  No mlruns found in SageMaker outputs.")
+        print("ℹ️ No mlruns folder found")
+
 
 if __name__ == "__main__":
     main()
