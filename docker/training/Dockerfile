@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy training script
-COPY train.py /opt/ml/code/train.py
+COPY docker/training/train.py /opt/ml/code/train.py
 
 # Required by SageMaker: `/opt/ml/code/train` must exist
 RUN ln -s /opt/ml/code/train.py /opt/ml/code/train
