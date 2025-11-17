@@ -63,28 +63,38 @@ def resolve(cli_val, yaml_val, default):
 
 def find_adult_csv():
     """
-    Try a few sensible locations for adult.csv so it works
-    both locally and inside SageMaker.
+    Detect Adult CSV from SageMaker channels or fallback local paths.
     """
-    # 1. SageMaker training channel
+
+    # 1. SageMaker environment variable (works on real SM jobs)
     sm_train = os.environ.get("SM_CHANNEL_TRAINING")
     if sm_train:
         candidate = os.path.join(sm_train, "adult.csv")
         if os.path.exists(candidate):
             return candidate
 
-    # 2. data/ folder in repo root
+    # 2. Local docker SageMaker-style path: /opt/ml/input/data/training/
+    docker_sm_train = "/opt/ml/input/data/training/adult.csv"
+    if os.path.exists(docker_sm_train):
+        return docker_sm_train
+
+    # 3. Repo local paths
     repo_root = pathlib.Path(__file__).resolve().parents[1]
     candidates = [
         repo_root / "data" / "adult.csv",
         repo_root / "adult.csv",
         pathlib.Path("data") / "adult.csv",
     ]
+
     for c in candidates:
         if c.exists():
             return str(c)
 
-    raise FileNotFoundError("adult.csv not found. Checked SM_CHANNEL_TRAINING and ./data/adult.csv")
+    raise FileNotFoundError(
+        "adult.csv not found. Checked SM_CHANNEL_TRAINING brin, "
+        "/opt/ml/input/data/training/adult.csv, and local ./data/adult.csv"
+    )
+
 
 
 def load_adult_data(csv_path: str):
