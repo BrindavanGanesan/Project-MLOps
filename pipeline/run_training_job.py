@@ -61,11 +61,11 @@ def main():
     boto_sess  = boto3.Session(region_name=region)
     sm_session = Session(boto_session=boto_sess)
 
-    # use UTC timestamp for job uniqueness
+    # Use UTC timestamp for deterministic job naming
     job_suffix = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     base_job_name = f"thesis-training-{job_suffix}"
 
-    # CUSTOM SAGEMAKER CONTAINER — NO entry_point
+    # BYOC container: NO entry_point
     est = Estimator(
         image_uri=image_uri,
         role=role_arn,
@@ -80,8 +80,17 @@ def main():
         output_path=f"s3://{bucket}/training-output/",
     )
 
+    # Point SageMaker to training data
+    train_s3_uri = f"s3://{bucket}/data/adult.csv"
+
+    print(f"📡 Using training data from: {train_s3_uri}")
     print(f"🚀 Starting training job: {base_job_name}")
-    est.fit(wait=True)
+
+    # IMPORTANT: Only ONE fit() call
+    est.fit(
+        inputs={"training": train_s3_uri},
+        wait=True
+    )
 
     # ------------------------------
     # Download training artifacts
@@ -90,7 +99,6 @@ def main():
     model_s3 = est.model_data
     bucket_name, model_key = parse_s3_uri(model_s3)
 
-    # SageMaker stores output.tar.gz next to model.tar.gz
     output_tar_key = model_key.replace("model.tar.gz", "output.tar.gz")
 
     s3 = boto3.client("s3", region_name=region)
@@ -110,7 +118,7 @@ def main():
     with tarfile.open(fileobj=io.BytesIO(data_bytes), mode="r:gz") as tar:
         tar.extractall(extracted_dir)
 
-    # metrics → DVC
+    # metrics.json → DVC
     metrics_json = next(extracted_dir.rglob("metrics.json"))
     shutil.copy2(metrics_json, mkdir("artifacts/metrics") / "metrics.json")
 
