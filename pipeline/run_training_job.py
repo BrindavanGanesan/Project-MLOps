@@ -81,7 +81,7 @@ def main():
     )
 
     # Point SageMaker to training data
-    train_s3_uri = f"s3://{bucket}/data/adult.csv"
+    train_s3_uri = f"s3://{bucket}/data/"
 
     print(f"📡 Using training data from: {train_s3_uri}")
     print(f"🚀 Starting training job: {base_job_name}")
@@ -89,7 +89,8 @@ def main():
     # IMPORTANT: Only ONE fit() call
     est.fit(
         inputs={"training": train_s3_uri},
-        wait=True
+        wait=True,
+        logs=True,
     )
 
     # ------------------------------
