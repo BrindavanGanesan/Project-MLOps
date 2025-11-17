@@ -19,10 +19,6 @@ import mlflow.sklearn
 
 
 def load_params(path="config/params.yaml"):
-    """
-    Backwards-compatible param loader.
-    If params.yaml is missing or partial, we fall back to defaults.
-    """
     defaults = {
         "training": {
             "test_size": 0.2,
@@ -64,21 +60,22 @@ def resolve(cli_val, yaml_val, default):
 def find_adult_csv():
     """
     Detect Adult CSV from SageMaker channels or fallback local paths.
+    Works for local Docker and SageMaker BYOC.
     """
 
-    # 1. SageMaker environment variable (works on real SM jobs)
+    # 1️⃣ SageMaker environment (real SM training job)
     sm_train = os.environ.get("SM_CHANNEL_TRAINING")
     if sm_train:
         candidate = os.path.join(sm_train, "adult.csv")
         if os.path.exists(candidate):
             return candidate
 
-    # 2. Local docker SageMaker-style path: /opt/ml/input/data/training/
-    docker_sm_train = "/opt/ml/input/data/training/adult.csv"
-    if os.path.exists(docker_sm_train):
-        return docker_sm_train
+    # 2️⃣ Local Docker SageMaker-style path
+    docker_candidate = "/opt/ml/input/data/training/adult.csv"
+    if os.path.exists(docker_candidate):
+        return docker_candidate
 
-    # 3. Repo local paths
+    # 3️⃣ Fallback local repo paths
     repo_root = pathlib.Path(__file__).resolve().parents[1]
     candidates = [
         repo_root / "data" / "adult.csv",
@@ -92,68 +89,46 @@ def find_adult_csv():
 
     raise FileNotFoundError(
         "adult.csv not found. Checked SM_CHANNEL_TRAINING, "
-        "/opt/ml/input/data/training/adult.csv, and local ./data/adult.csv"
+        "/opt/ml/input/data/training/adult.csv, and ./data/adult.csv"
     )
-
 
 
 def load_adult_data(csv_path: str):
     """
-    Load Adult Census data from CSV and normalise column names.
-    Assumes UCI-like schema with 'income' as target.
+    Load Adult Census data but tolerate multiple target column names.
     """
-    df = pd.read_csv(csv_path)
 
-    # Strip whitespace and normalise column names to snake_case
+    df = pd.read_csv(csv_path)
     df.columns = [c.strip() for c in df.columns]
 
-    # Map common UCI Adult column names to canonical ones
-    col_map = {
-        "age": "age",
-        "workclass": "workclass",
-        "fnlwgt": "fnlwgt",
-        "education": "education",
-        "education-num": "education_num",
-        "marital-status": "marital_status",
-        "occupation": "occupation",
-        "relationship": "relationship",
-        "race": "race",
-        "sex": "sex",
-        "capital-gain": "capital_gain",
-        "capital-loss": "capital_loss",
-        "hours-per-week": "hours_per_week",
-        "native-country": "native_country",
-        "income": "income",
-    }
+    # 🔥 Allow multiple possible label names
+    POSSIBLE_TARGETS = ["income", "target", "class", "salary"]
 
-    # Only rename columns that actually exist
-    rename_dict = {old: new for old, new in col_map.items() if old in df.columns}
-    df = df.rename(columns=rename_dict)
+    actual_target = None
+    for col in df.columns:
+        if col.strip().lower() in POSSIBLE_TARGETS:
+            actual_target = col
+            break
 
-    if "income" not in df.columns:
-        # Try case-insensitive search
-        lower_map = {c.lower(): c for c in df.columns}
-        if "income" in lower_map:
-            df = df.rename(columns={lower_map["income"]: "income"})
-        else:
-            raise ValueError("Could not find 'income' target column in adult.csv")
+    if actual_target is None:
+        raise ValueError(
+            f"Could not find target column. Expected one of: {POSSIBLE_TARGETS}. "
+            f"Found columns: {df.columns.tolist()}"
+        )
 
-    # Basic cleaning: drop rows with missing target
+    # Normalize target column name → income
+    df = df.rename(columns={actual_target: "income"})
+
+    # Clean dataset
     df = df.dropna(subset=["income"])
-
-    # Replace '?' placeholders with NaN and drop them for simplicity
     df = df.replace("?", pd.NA).dropna()
 
-    y = df["income"].astype(str)  # e.g. '<=50K', '>50K'
+    y = df["income"].astype(str)
     X = df.drop(columns=["income"])
-
     return X, y
 
 
 def build_pipeline(X_sample, random_state: int, xgb_params: dict):
-    """
-    Build a preprocessing + XGBoost pipeline based on the sample dataframe.
-    """
     numeric_features = X_sample.select_dtypes(include=["int64", "float64"]).columns.tolist()
     categorical_features = [c for c in X_sample.columns if c not in numeric_features]
 
@@ -176,41 +151,35 @@ def build_pipeline(X_sample, random_state: int, xgb_params: dict):
         tree_method="hist",
     )
 
-    model = Pipeline(
-        steps=[
-            ("preprocess", preprocessor),
-            ("clf", clf),
-        ]
-    )
-
-    return model
+    return Pipeline([
+        ("preprocess", preprocessor),
+        ("clf", clf),
+    ])
 
 
 def main():
-    # --- resolve hyperparameters ---
+    # Load parameters
     params = load_params()
     yaml_test_size = float(params["training"]["test_size"])
     yaml_random_state = int(params["training"]["random_state"])
     xgb_cfg = params["training"]["xgb"]
 
+    # Parse arguments but ignore SageMaker's extra args
     ap = argparse.ArgumentParser()
     ap.add_argument("--test-size", type=float, default=None)
     ap.add_argument("--random-state", type=int, default=None)
-    
-
-    # FIX FOR SAGEMAKER EXTRA ARGUMENTS
     args, _ = ap.parse_known_args()
 
     test_size = resolve(args.test_size, yaml_test_size, 0.2)
     random_state = resolve(args.random_state, yaml_random_state, 42)
 
-    # --- SageMaker dirs ---
+    # SageMaker paths
     model_dir = os.environ.get("SM_MODEL_DIR", "/opt/ml/model")
     output_dir = os.environ.get("SM_OUTPUT_DATA_DIR", "/opt/ml/output/data")
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
-    # --- Load data ---
+    # Load dataset
     csv_path = find_adult_csv()
     print(f"📂 Using Adult dataset from: {csv_path}")
     X, y = load_adult_data(csv_path)
@@ -223,7 +192,6 @@ def main():
         stratify=y,
     )
 
-    # --- Build and train model ---
     model = build_pipeline(Xtr, random_state, xgb_cfg)
     model.fit(Xtr, ytr)
 
@@ -232,6 +200,7 @@ def main():
         "accuracy": float(accuracy_score(yte, pred)),
         "f1_macro": float(f1_score(yte, pred, average="macro")),
     }
+
     resolved_params = {
         "test_size": float(test_size),
         "random_state": int(random_state),
@@ -241,25 +210,23 @@ def main():
         "model_type": "XGBClassifier",
     }
 
-    # --- Save outputs for SageMaker ---
+    # Save artifacts for SageMaker
     model_path = os.path.join(model_dir, "model.joblib")
     joblib.dump(model, model_path)
+
     metrics_path = os.path.join(output_dir, "metrics.json")
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump({**metrics, "resolved_params": resolved_params}, f, indent=2)
 
-    print(f"✅ Model saved to {model_path}")
-    print(f"✅ Metrics saved to {metrics_path}")
-    print("ℹ️ Params used:", resolved_params)
-    print("📊 Metrics:", metrics)
+    print(f"✅ Model saved to: {model_path}")
+    print(f"📊 Metrics saved to: {metrics_path}")
 
-    # --- MLflow logging (file-based inside container) ---
+    # MLflow logging
     mlflow_tracking_dir = "/opt/ml/output/data/mlruns"
     mlflow.set_tracking_uri(f"file:{mlflow_tracking_dir}")
     mlflow.set_experiment("adult-income-xgboost")
     os.environ["MLFLOW_S3_ENDPOINT_URL"] = "https://s3.eu-west-1.amazonaws.com"
     mlflow.set_registry_uri(f"file:{mlflow_tracking_dir}")
-    print(f"📊 [MLflow] tracking to {mlflow_tracking_dir}")
 
     run_name = f"adult-xgb-train-{datetime.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
     with mlflow.start_run(run_name=run_name):
