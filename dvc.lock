@@ -5,7 +5,7 @@ stages:
     deps:
     - path: config/config.yaml
       hash: md5
-      md5: c55e03325d319df271c568d073428569
+      md5: 58ad5d610c35cceb02c438f665bb145b
       size: 373
     - path: data/adult.csv
       hash: md5
@@ -22,23 +22,23 @@ stages:
     outs:
     - path: artifacts/metrics/metrics.json
       hash: md5
-      md5: 96735b20a3d386e20a65ca96b117d328
-      size: 249
+      md5: db3f93db511430d2bb481a060834313f
+      size: 248
     - path: artifacts/model/model.tar.gz
       hash: md5
-      md5: c19570042b1506d4c63c2d0ffe85fc3c
-      size: 125352
+      md5: 4b452c94f5463968d89a5f07e53f4708
+      size: 124424
     - path: mlruns/
       hash: md5
-      md5: eb31b02a367a4674f1771393330b3958.dir
-      size: 419750
+      md5: 5e2856fb4f9201070094fcf8da4d9922.dir
+      size: 416825
       nfiles: 34
   evaluate:
     cmd: python pipeline/run_evaluation_job.py
     deps:
     - path: config/config.yaml
       hash: md5
-      md5: c55e03325d319df271c568d073428569
+      md5: 58ad5d610c35cceb02c438f665bb145b
       size: 373
     - path: evaluation/evaluate.py
       hash: md5
