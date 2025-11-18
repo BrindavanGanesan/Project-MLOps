@@ -95,14 +95,19 @@ def find_adult_csv():
 
 def load_adult_data(csv_path: str):
     """
-    Load Adult Census data, normalize column names, and convert target to 0/1.
+    Load Adult Census data, normalize column names, clean categorical noise,
+    and convert target to 0/1.
     """
     df = pd.read_csv(csv_path)
 
-    # Strip whitespace from column names
+    # ---------------------------
+    # 1. Clean column names
+    # ---------------------------
     df.columns = [c.strip() for c in df.columns]
 
-    # Detect target column
+    # ---------------------------
+    # 2. Detect target column
+    # ---------------------------
     POSSIBLE_TARGETS = ["income", "target", "class", "salary"]
 
     actual_target = None
@@ -119,14 +124,28 @@ def load_adult_data(csv_path: str):
     # Normalize name → income
     df = df.rename(columns={actual_target: "income"})
 
-    # Clean target values
-    df["income"] = df["income"].astype(str).str.strip()
+    # ---------------------------
+    # 3. CLEAN ALL STRING COLUMNS
+    # ---------------------------
+    for col in df.select_dtypes(include="object").columns:
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.replace('"', "", regex=False)  # remove quotes
+            .str.strip()                         # remove whitespace
+        )
 
+    # ---------------------------
+    # 4. Fix income labels
+    # ---------------------------
     label_map = {
         "<=50K": 0,
         ">50K": 1,
-        "<=50K.": 0,  # sometimes present
+        "<=50K.": 0,
         ">50K.": 1,
+        # handle accidentally whitespace-stripped values
+        "<=50K": 0,
+        ">50K": 1,
     }
 
     df["income"] = df["income"].replace(label_map)
@@ -134,12 +153,17 @@ def load_adult_data(csv_path: str):
     # Validate mapping
     if df["income"].isnull().any():
         raise ValueError(
-            f"Unrecognized class labels! Found: {df['income'].unique()}"
+            f"Unrecognized class labels after cleaning! Found: {df['income'].unique()}"
         )
 
-    # Drop missing rows
+    # ---------------------------
+    # 5. Drop "?" and empty rows
+    # ---------------------------
     df = df.replace("?", pd.NA).dropna()
 
+    # ---------------------------
+    # 6. Return X and y
+    # ---------------------------
     y = df["income"].astype(int)
     X = df.drop(columns=["income"])
 
