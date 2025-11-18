@@ -56,3 +56,6 @@ Thumbs.db
 *.key
 .aws/
 /mlruns
+infra/repo-filter.git/objects/pack/*.pack
+infra/repo-filter.git
+infra/repo-filter.git/objects/pack/pack-ef36be2fe7126a9633e1919503288883b8797e7a.pack

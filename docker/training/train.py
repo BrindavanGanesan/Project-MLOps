@@ -95,13 +95,14 @@ def find_adult_csv():
 
 def load_adult_data(csv_path: str):
     """
-    Load Adult Census data but tolerate multiple target column names.
+    Load Adult Census data, normalize column names, and convert target to 0/1.
     """
-
     df = pd.read_csv(csv_path)
+
+    # Strip whitespace from column names
     df.columns = [c.strip() for c in df.columns]
 
-    # 🔥 Allow multiple possible label names
+    # Detect target column
     POSSIBLE_TARGETS = ["income", "target", "class", "salary"]
 
     actual_target = None
@@ -112,21 +113,37 @@ def load_adult_data(csv_path: str):
 
     if actual_target is None:
         raise ValueError(
-            f"Could not find target column. Expected one of: {POSSIBLE_TARGETS}. "
-            f"Found columns: {df.columns.tolist()}"
+            f"Could not find target column. Expected one of {POSSIBLE_TARGETS}, found: {df.columns.tolist()}"
         )
 
-    # Normalize target column name → income
+    # Normalize name → income
     df = df.rename(columns={actual_target: "income"})
 
-    # Clean dataset
-    df = df.dropna(subset=["income"])
+    # Clean target values
+    df["income"] = df["income"].astype(str).str.strip()
+
+    label_map = {
+        "<=50K": 0,
+        ">50K": 1,
+        "<=50K.": 0,  # sometimes present
+        ">50K.": 1,
+    }
+
+    df["income"] = df["income"].replace(label_map)
+
+    # Validate mapping
+    if df["income"].isnull().any():
+        raise ValueError(
+            f"Unrecognized class labels! Found: {df['income'].unique()}"
+        )
+
+    # Drop missing rows
     df = df.replace("?", pd.NA).dropna()
 
-    y = df["income"].astype(str)
+    y = df["income"].astype(int)
     X = df.drop(columns=["income"])
-    return X, y
 
+    return X, y
 
 def build_pipeline(X_sample, random_state: int, xgb_params: dict):
     numeric_features = X_sample.select_dtypes(include=["int64", "float64"]).columns.tolist()
