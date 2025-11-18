@@ -4,10 +4,11 @@ aws:
   bucket: "thebrowntiger"
 
 training:
-  image_uri: "353671347542.dkr.ecr.eu-west-1.amazonaws.com/thesis-training:v04"
+  image_uri: "353671347542.dkr.ecr.eu-west-1.amazonaws.com/thesis-training:v05"
   test_size: 0.2
   random_state: 42
   use_spot: false
+  framework_version: "1.2-1"
 
   xgb:
     n_estimators: 200
