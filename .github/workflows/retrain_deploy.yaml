@@ -39,7 +39,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 🔐 Configure AWS credentials (OIDC)
+      # 🔐 Configure AWS credentials
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -64,20 +64,20 @@ jobs:
         run: |
           dvc pull data/adult.csv.dvc
 
-    # 🧪 STEP 0 — BASIC QUALITY CHECKS
-      # Why: Quickly catches broken imports/tests before wasting money on SageMaker.
+
+      # 🧪 STEP 0 — LIGHTWEIGHT TESTS
       - name: Run quick sanity tests
         run: |
-          echo "Running lightweight tests before training..."
+          echo "Running lightweight tests..."
           pip install pytest pyyaml -q
           pytest -q --maxfail=1 --disable-warnings || echo "⚠️ Tests failed or skipped — continuing anyway."
 
 
-      # 🧠 Step 1: Retrain Model
+      # 🧠 Step 1 — Retrain Model via DVC + SageMaker
       - name: Run DVC pipeline
         run: dvc repro
 
-      - name: Push updated DVC outputs to remote
+      - name: Push updated DVC outputs
         run: dvc push
 
       - name: Upload new metrics to S3 backup
@@ -85,37 +85,61 @@ jobs:
           aws s3 cp artifacts/metrics/metrics.json s3://thebrowntiger/mlops-metrics/metrics-$(date +%Y%m%d-%H%M%S).json
 
 
-       # ✅ STEP 1.5 — METRIC GATE
-      # Why: Ensures new model performs at least as well as the previous "champion"
+      # ✅ STEP 1.5 — METRIC GATE (UPDATED)
       - name: Compare metrics with champion
         run: |
+          echo "🔍 Comparing new model against champion..."
+
           NEW=artifacts/metrics/metrics.json
+
+          # If champion does not exist, create a dummy one
           aws s3 cp s3://thebrowntiger/champion/metrics.json champion.json || echo '{"accuracy":0}' > champion.json
+
           python - <<'PY'
           import json, sys
-          new=json.load(open("artifacts/metrics/metrics.json"))
-          old=json.load(open("champion.json"))
-          thr=-0.005  # allow up to 0.5% drop
-          delta=new.get("accuracy",0)-old.get("accuracy",0)
-          print(f"Champion={old.get('accuracy')} New={new.get('accuracy')} Δ={delta}")
-          sys.exit(0 if delta>=thr else 1)
+
+          new = json.load(open("artifacts/metrics/metrics.json"))
+          old = json.load(open("champion.json"))
+
+          def get_acc(m):
+              return (
+                  m.get("accuracy")
+                  or m.get("metrics", {}).get("accuracy")
+                  or 0
+              )
+
+          new_acc = float(get_acc(new))
+          old_acc = float(get_acc(old))
+
+          tolerance = -0.005  # Allow up to 0.5% drop
+          delta = new_acc - old_acc
+
+          print(f"Champion={old_acc} New={new_acc} Δ={delta}")
+
+          if delta < tolerance:
+              print(f"❌ New model accuracy dropped by {abs(delta):.4f}. Rejecting model.")
+              sys.exit(1)
+
+          print("✅ New model meets minimum performance requirements.")
           PY
 
-      - name: Promote new champion (optional)
+      - name: Promote new champion
         if: ${{ success() }}
-        run: aws s3 cp artifacts/metrics/metrics.json s3://thebrowntiger/champion/metrics.json
+        run: |
+          aws s3 cp artifacts/metrics/metrics.json s3://thebrowntiger/champion/metrics.json
+          echo "🏆 New model promoted to champion!"
 
 
+      # 🏷 STEP 2 — MLflow Registration
       - name: Register latest model in MLflow
         run: |
           echo "Registering model..."
           python <<'EOF'
           import mlflow, os, sys, glob
 
-          # Find the latest local mlruns folder copied from SageMaker
           mlruns_dirs = sorted(glob.glob("artifacts/sm-output/*/extracted/mlruns"), reverse=True)
           if not mlruns_dirs:
-              print("⚠️ No local mlruns found — skipping registration.")
+              print("⚠️ No MLflow runs found. Skipping registration.")
               sys.exit(0)
 
           latest_mlruns = mlruns_dirs[0]
@@ -123,34 +147,32 @@ jobs:
 
           mlflow.set_tracking_uri(f"file:{latest_mlruns}")
           mlflow.set_registry_uri(f"file:{latest_mlruns}")
-          exp_name = "thesis-iris"
 
+          exp_name = "thesis-iris"
           client = mlflow.tracking.MlflowClient()
           exp = client.get_experiment_by_name(exp_name)
+
           if not exp:
-              print(f"⚠️ Experiment '{exp_name}' not found in {latest_mlruns}.")
+              print(f"⚠️ Experiment '{exp_name}' not found. Skipping.")
               sys.exit(0)
 
           runs = client.search_runs(exp.experiment_id, order_by=["attributes.start_time DESC"], max_results=1)
           if not runs:
-              print("⚠️ No runs found — skipping model registration.")
+              print("⚠️ No runs exist. Skipping.")
               sys.exit(0)
 
-          latest_run = runs[0]
-          run_id = latest_run.info.run_id
+          run_id = runs[0].info.run_id
           model_uri = f"runs:/{run_id}/model"
-          print(f"Registering model from run {run_id} ({model_uri}) ...")
 
           try:
               result = mlflow.register_model(model_uri, "sagemaker-model")
-              print("✅ Registered model:", result.name, "version:", result.version)
+              print(f"✅ Registered model version {result.version}")
           except Exception as e:
-              print("⚠️ Skipping model registration:", e)
-              sys.exit(0)
+              print("⚠️ Model registration skipped:", e)
           EOF
 
 
-      # 🐳 Step 2: Build and Push Docker Image to ECR
+      # 🐳 STEP 3 — Build & Push Docker Image
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -168,17 +190,16 @@ jobs:
           docker push ${{ env.IMAGE_URI }}
           docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
 
-      # 🚀 Step 3: Force ECS Redeployment
+
+      # 🚀 STEP 4 — Trigger ECS Deployment
       - name: Force ECS service to deploy new image
         run: |
-          echo "Triggering ECS redeployment..."
           aws ecs update-service \
             --cluster $ECS_CLUSTER \
             --service $ECS_SERVICE \
             --force-new-deployment \
             --region $AWS_REGION
 
-      # ✅ Optional: Deployment confirmation
       - name: Confirm ECS service update
         run: |
           aws ecs describe-services \
@@ -186,7 +207,9 @@ jobs:
             --services $ECS_SERVICE \
             --region $AWS_REGION \
             --query "services[0].deployments"
-      
+
+
+      # 🔍 STEP 5 — Smoke Test
       - name: Fetch ECS public IP
         id: ecs-ip
         run: |
@@ -195,11 +218,7 @@ jobs:
           ECS_PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI_ID --region $AWS_REGION --query "NetworkInterfaces[0].Association.PublicIp" --output text)
           echo "ECS_PUBLIC_IP=$ECS_PUBLIC_IP" >> $GITHUB_ENV
 
-      
-      # ✅ STEP 5 — POST DEPLOY SMOKE TEST
-      # Why: Confirms the container is reachable and serving /predict before marking the run successful
       - name: Smoke test
         run: |
-          set -e
           echo "Hitting http://$ECS_PUBLIC_IP:8080/healthz"
           curl -f "http://$ECS_PUBLIC_IP:8080/healthz"
