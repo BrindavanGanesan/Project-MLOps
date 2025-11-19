@@ -1,29 +1,33 @@
 FROM python:3.10-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
-
+# Set workdir
 WORKDIR /app
 
-COPY app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install system libs required by XGBoost + pandas
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# essential dependencies
-RUN pip install --no-cache-dir \
-    numpy==1.24.1 \
-    scikit-learn==1.2.1 \
-    joblib==1.3.2 \
-    boto3 \
-    fastapi \
-    uvicorn[standard] \
-    prometheus-client \
-    xgboost==1.7.6
+# Copy Python dependencies
+COPY requirements.txt /app/requirements.txt
 
-COPY app/ ./app/
+# Install API + Model dependencies
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir \
+        pandas \
+        scikit-learn \
+        xgboost \
+        joblib \
+        prometheus_client
 
+# Copy application code
+COPY app /app
+
+# Expose app + metrics ports
 EXPOSE 8080
+EXPOSE 9090
+
+# Run FastAPI with Uvicorn
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
