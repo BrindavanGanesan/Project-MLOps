@@ -1,9 +1,6 @@
-# Keep your existing cluster and task definition resources as-is
-# Just ensure the service load_balancer points to the NLB target group on container 8080
-
 resource "aws_ecs_service" "iris_service" {
-  name             = "iris-api-service"              # unchanged
-  cluster          = aws_ecs_cluster.iris_cluster.id # unchanged
+  name             = "iris-api-service"
+  cluster          = aws_ecs_cluster.iris_cluster.id
   launch_type      = "FARGATE"
   desired_count    = 1
   platform_version = "LATEST"
@@ -12,12 +9,7 @@ resource "aws_ecs_service" "iris_service" {
     type = "ECS"
   }
 
-  
-
-  # Auto-restart containers if unhealthy
   health_check_grace_period_seconds = 30
-
-
 
   lifecycle {
     ignore_changes = [task_definition]
@@ -31,7 +23,6 @@ resource "aws_ecs_service" "iris_service" {
     assign_public_ip = true
   }
 
-  # NLB registration here (replace any ALB TG reference you had)
   load_balancer {
     target_group_arn = aws_lb_target_group.iris_nlb_tg.arn
     container_name   = "iris-api"
