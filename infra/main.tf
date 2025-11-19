@@ -82,6 +82,11 @@ resource "aws_security_group" "ecs_sg" {
   description = "Allow inbound HTTP traffic for ECS tasks"
   vpc_id      = aws_vpc.main.id
 
+  lifecycle {
+  create_before_destroy = false
+  prevent_destroy       = true
+  }
+
   ingress {
     from_port   = 8080
     to_port     = 8080
