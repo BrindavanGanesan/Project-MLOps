@@ -203,6 +203,8 @@ def predict(request: PredictRequest):
         "native_country": "Country"
     })
 
+    print("Incoming DF columns:", df.columns.tolist())
+    
     # Run prediction
     preds = _model.predict(df)
     preds = preds.tolist()
