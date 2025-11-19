@@ -37,7 +37,7 @@ resource "aws_apigatewayv2_integration" "iris_integration" {
   integration_method     = "ANY"
   connection_type        = "VPC_LINK"
   connection_id          = aws_apigatewayv2_vpc_link.iris_vpc_link.id
-  integration_uri        = aws_lb_listener.iris_nlb_listener.arn # NLB listener ARN
+  integration_uri        = aws_lb_target_group.iris_nlb_tg.arn # NLB listener ARN
   payload_format_version = "1.0"
   timeout_milliseconds   = 29000
 }

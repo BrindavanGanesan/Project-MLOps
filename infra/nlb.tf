@@ -13,7 +13,7 @@ resource "aws_lb_target_group" "iris_nlb_tg" {
   target_type = "ip"
 
   health_check {
-    protocol            = "HTTP"
+    protocol            = "TCP"
     port                = "8080"
     path                = "/ping"
     healthy_threshold   = 2
