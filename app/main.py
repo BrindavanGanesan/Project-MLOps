@@ -115,19 +115,16 @@ class PredictRequest(BaseModel):
 # Prometheus Metrics
 # -------------------------------------------------
 
-# Total predictions counter
 PREDICTION_COUNTER = Counter(
     "adult_income_prediction_count",
     "Total number of predictions served"
 )
 
-# Data Drift score
 DRIFT_SCORE = Gauge(
     "adult_income_drift_score",
     "Drift score between live data and training distribution"
 )
 
-# Label distribution
 LABEL_COUNTER = Counter(
     "adult_income_prediction_by_label",
     "Prediction count by label",
@@ -136,19 +133,14 @@ LABEL_COUNTER = Counter(
 
 
 # -------------------------------------------------
-# Dummy Drift Detector (replace later with KS test or PSI)
+# Dummy Drift Detector
 # -------------------------------------------------
 def compute_drift(df: pd.DataFrame) -> float:
-    """
-    Placeholder drift metric: 
-    We compute the average relative difference between numeric cols.
-    Replace with real drift detection if needed.
-    """
     numeric_cols = df.select_dtypes(include="number").columns
     if len(numeric_cols) == 0:
         return 0.0
 
-    drift_value = float(df[numeric_cols].mean().sum() % 1)  # synthetic
+    drift_value = float(df[numeric_cols].mean().sum() % 1)
     return drift_value
 
 
@@ -175,7 +167,7 @@ def ping():
 
 
 # -------------------------------------------------
-# Metrics Endpoint (Prometheus Pull)
+# Metrics Endpoint
 # -------------------------------------------------
 @app.get("/metrics")
 def metrics():
@@ -191,6 +183,26 @@ def predict(request: PredictRequest):
 
     df = pd.DataFrame([r.dict() for r in request.records])
 
+    # ---------------------------------------------
+    # FIX: Rename snake_case API inputs to match training feature names
+    # ---------------------------------------------
+    df = df.rename(columns={
+        "age": "Age",
+        "workclass": "Workclass",
+        "fnlwgt": "Fnlwgt",
+        "education": "Education",
+        "education_num": "Education_Num",
+        "marital_status": "Martial_Status",
+        "occupation": "Occupation",
+        "relationship": "Relationship",
+        "race": "Race",
+        "sex": "Sex",
+        "capital_gain": "Capital_Gain",
+        "capital_loss": "Capital_Loss",
+        "hours_per_week": "Hours_per_week",
+        "native_country": "Country"
+    })
+
     # Run prediction
     preds = _model.predict(df)
     preds = preds.tolist()
@@ -198,8 +210,7 @@ def predict(request: PredictRequest):
     # ---------------------------------------------
     # Update metrics
     # ---------------------------------------------
-    drift_value = compute_drift(df)
-    drift_value = round(drift_value, 4)
+    drift_value = round(compute_drift(df), 4)
     DRIFT_SCORE.set(drift_value)
 
     for p in preds:
@@ -221,9 +232,6 @@ def predict(request: PredictRequest):
     except Exception as e:
         print(f"⚠️ Pushgateway push failed: {e}")
 
-    # ---------------------------------------------
-    # Return predictions
-    # ---------------------------------------------
     return {
         "predictions": preds,
         "drift_score": drift_value
