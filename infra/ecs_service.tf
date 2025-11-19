@@ -11,9 +11,6 @@ resource "aws_ecs_service" "iris_service" {
 
   health_check_grace_period_seconds = 30
 
-  lifecycle {
-    ignore_changes = [task_definition]
-  }
 
   task_definition = aws_ecs_task_definition.iris_task.arn
 
