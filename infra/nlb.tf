@@ -26,7 +26,7 @@ resource "aws_lb_target_group" "iris_nlb_tg" {
 resource "aws_lb_listener" "iris_nlb_listener" {
   load_balancer_arn = aws_lb.iris_nlb.arn
   port              = 80
-  protocol          = "HTTP"
+  protocol          = "TCP"
 
   default_action {
     type             = "forward"
