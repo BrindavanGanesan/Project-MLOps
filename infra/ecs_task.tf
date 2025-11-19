@@ -2,6 +2,11 @@ resource "aws_ecs_cluster" "iris_cluster" {
   name = "iris-api-cluster"
 }
 
+variable "model_s3_uri" {
+  type        = string
+  description = "S3 URI to the latest SageMaker-trained model"
+}
+
 resource "aws_ecs_task_definition" "iris_task" {
   family                   = "iris-api-task"
   requires_compatibilities = ["FARGATE"]
@@ -14,6 +19,16 @@ resource "aws_ecs_task_definition" "iris_task" {
       name      = "iris-api"
       image     = "353671347542.dkr.ecr.eu-west-1.amazonaws.com/iris-api:latest"
       essential = true
+
+      command = [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8080"
+      ]
+
       portMappings = [
         {
           containerPort = 8080
@@ -21,9 +36,11 @@ resource "aws_ecs_task_definition" "iris_task" {
           protocol      = "tcp"
         }
       ]
+
       environment = [
-        { name = "AWS_REGION", value = "eu-west-1" },
-        { name = "MODEL_S3_URI", value = "s3://thebrowntiger/thesis-train-20250930-104353-2025-09-30-10-43-54-262/output/model.tar.gz" }
+        { name = "AWS_REGION",       value = "eu-west-1" },
+        { name = "MODEL_S3_URI",     value = var.model_s3_uri },
+        { name = "PUSHGATEWAY_URL",  value = "http://108.130.158.94:9091" }
       ]
 
       logConfiguration = {
