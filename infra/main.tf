@@ -84,7 +84,7 @@ resource "aws_security_group" "ecs_sg" {
 
   lifecycle {
   create_before_destroy = false
-  prevent_destroy       = true
+  #prevent_destroy       = true
   }
 
   ingress {
