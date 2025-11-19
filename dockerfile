@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
         prometheus_client
 
 # Copy application code
-COPY app /app
+COPY app /app/app
 
 # Expose app + metrics ports
 EXPOSE 8080
