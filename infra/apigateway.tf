@@ -1,3 +1,4 @@
+/*
 # HTTP API
 resource "aws_apigatewayv2_api" "iris_api" {
   name          = "iris-http-api"
@@ -65,4 +66,4 @@ resource "aws_apigatewayv2_stage" "prod" {
 
 output "api_invoke_url" {
   value = aws_apigatewayv2_stage.prod.invoke_url
-}
+} */
