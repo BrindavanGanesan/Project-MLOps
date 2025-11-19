@@ -15,11 +15,6 @@ resource "aws_lb_target_group" "iris_nlb_tg" {
   health_check {
     protocol            = "TCP"
     port                = "8080"
-    path                = "/ping"
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    interval            = 15
-    timeout             = 5
   }
 }
 
