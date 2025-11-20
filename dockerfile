@@ -17,7 +17,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir \
         pandas \
-        scikit-learn \
+        scikit-learn==1.2.1 \
         xgboost \
         joblib \
         prometheus_client

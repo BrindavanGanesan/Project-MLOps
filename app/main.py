@@ -29,7 +29,6 @@ app = FastAPI(title="Adult Income Classifier", version="2.0")
 MODEL_S3_URI = os.getenv("MODEL_S3_URI")   # Required
 AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
 
-# Default PushGateway (your IP)
 PUSHGATEWAY_URL = os.getenv("PUSHGATEWAY_URL", "http://108.130.158.94:9091")
 
 # ------------------ Globals ----------------------
@@ -62,11 +61,10 @@ def _load_model_from_s3():
             with tempfile.TemporaryDirectory() as td:
                 tar.extractall(td)
 
-                # Find model.joblib inside the tar
                 joblib_path = os.path.join(td, "model.joblib")
 
+                # Fallback search for .joblib
                 if not os.path.exists(joblib_path):
-                    # fallback: search for any .joblib
                     for member in tar.getmembers():
                         if member.name.endswith(".joblib"):
                             tar.extract(member, td)
@@ -88,23 +86,23 @@ def _load_model_from_s3():
 
 
 # -------------------------------------------------
-# Request Schemas
+# Request Schemas (EXACT training CSV feature names)
 # -------------------------------------------------
 class AdultRecord(BaseModel):
-    age: int
-    workclass: str
+    Age: int
+    Workclass: str
     fnlwgt: int
-    education: str
-    education_num: int
-    marital_status: str
-    occupation: str
-    relationship: str
-    race: str
-    sex: str
-    capital_gain: int
-    capital_loss: int
-    hours_per_week: int
-    native_country: str
+    Education: str
+    Education_Num: int
+    Martial_Status: str
+    Occupation: str
+    Relationship: str
+    Race: str
+    Sex: str
+    Capital_Gain: int
+    Capital_Loss: int
+    Hours_per_week: int
+    Country: str
 
 
 class PredictRequest(BaseModel):
@@ -114,7 +112,6 @@ class PredictRequest(BaseModel):
 # -------------------------------------------------
 # Prometheus Metrics
 # -------------------------------------------------
-
 PREDICTION_COUNTER = Counter(
     "adult_income_prediction_count",
     "Total number of predictions served"
@@ -181,12 +178,8 @@ def metrics():
 @app.post("/predict")
 def predict(request: PredictRequest):
 
+    # Convert JSON → DataFrame (already training-valid names)
     df = pd.DataFrame([r.dict() for r in request.records])
-
-    # ---------------------------------------------
-    # FIX: Rename snake_case API inputs to match training feature names
-    # ---------------------------------------------
-    df.columns = df.columns.str.lower()
 
     print("Incoming DF columns:", df.columns.tolist())
 
@@ -206,7 +199,7 @@ def predict(request: PredictRequest):
     PREDICTION_COUNTER.inc(len(preds))
 
     # ---------------------------------------------
-    # Push to PushGateway
+    # Pushgateway Push
     # ---------------------------------------------
     try:
         registry = CollectorRegistry()
