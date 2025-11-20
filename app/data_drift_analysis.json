@@ -1,0 +1,222 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["ml", "drift", "psi", "income"],
+  "timezone": "",
+  "title": "Adult Income Model — Drift & PSI Monitoring",
+  "uid": "income-psi-dashboard",
+  "version": 1,
+
+  "panels": [
+    {
+      "type": "stat",
+      "title": "📉 Overall Drift Score (PSI)",
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "adult_income_drift_score",
+          "legendFormat": "Drift Score",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "type": "stat",
+      "title": "📈 Total Predictions",
+      "id": 2,
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "adult_income_prediction_count",
+          "legendFormat": "Predictions",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "type": "barchart",
+      "title": "📊 Prediction Distribution",
+      "id": 3,
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (label) (adult_income_prediction_by_label)",
+          "legendFormat": "{{label}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "⏳ Drift Score Over Time",
+      "id": 4,
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "adult_income_drift_score",
+          "legendFormat": "Drift Score",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "🔍 PSI: Age",
+      "id": 10,
+      "gridPos": { "x": 0, "y": 10, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "psi_feature_age",
+          "legendFormat": "Age",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Workclass",
+      "id": 11,
+      "gridPos": { "x": 6, "y": 10, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_workclass", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: fnlwgt",
+      "id": 12,
+      "gridPos": { "x": 12, "y": 10, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_fnlwgt", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Education",
+      "id": 13,
+      "gridPos": { "x": 18, "y": 10, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_education", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Education Num",
+      "id": 14,
+      "gridPos": { "x": 0, "y": 14, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_education_num", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Marital Status",
+      "id": 15,
+      "gridPos": { "x": 6, "y": 14, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_marital_status", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Occupation",
+      "id": 16,
+      "gridPos": { "x": 12, "y": 14, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_occupation", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Relationship",
+      "id": 17,
+      "gridPos": { "x": 18, "y": 14, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_relationship", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Race",
+      "id": 18,
+      "gridPos": { "x": 0, "y": 18, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_race", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Sex",
+      "id": 19,
+      "gridPos": { "x": 6, "y": 18, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_sex", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Capital Gain",
+      "id": 20,
+      "gridPos": { "x": 12, "y": 18, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_capital_gain", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Capital Loss",
+      "id": 21,
+      "gridPos": { "x": 18, "y": 18, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_capital_loss", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Hours per Week",
+      "id": 22,
+      "gridPos": { "x": 0, "y": 22, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_hours_per_week", "refId": "A" }]
+    },
+
+    {
+      "type": "timeseries",
+      "title": "PSI: Country",
+      "id": 23,
+      "gridPos": { "x": 6, "y": 22, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "psi_feature_country", "refId": "A" }]
+    }
+  ]
+}
