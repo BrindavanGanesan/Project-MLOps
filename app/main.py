@@ -186,6 +186,7 @@ def predict(request: PredictRequest):
     # ---------------------------------------------
     # FIX: Rename snake_case API inputs to match training feature names
     # ---------------------------------------------
+    df.columns = df.columns.str.lower()
 
     print("Incoming DF columns:", df.columns.tolist())
 
