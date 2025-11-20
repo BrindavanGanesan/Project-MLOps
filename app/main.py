@@ -186,25 +186,9 @@ def predict(request: PredictRequest):
     # ---------------------------------------------
     # FIX: Rename snake_case API inputs to match training feature names
     # ---------------------------------------------
-    df = df.rename(columns={
-        "age": "Age",
-        "workclass": "Workclass",
-        "fnlwgt": "Fnlwgt",
-        "education": "Education",
-        "education_num": "Education_Num",
-        "marital_status": "Martial_Status",
-        "occupation": "Occupation",
-        "relationship": "Relationship",
-        "race": "Race",
-        "sex": "Sex",
-        "capital_gain": "Capital_Gain",
-        "capital_loss": "Capital_Loss",
-        "hours_per_week": "Hours_per_week",
-        "native_country": "Country"
-    })
 
     print("Incoming DF columns:", df.columns.tolist())
-    
+
     # Run prediction
     preds = _model.predict(df)
     preds = preds.tolist()
