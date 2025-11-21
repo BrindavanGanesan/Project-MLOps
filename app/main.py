@@ -19,7 +19,6 @@ from prometheus_client import (
     generate_latest,
     CONTENT_TYPE_LATEST,
     push_to_gateway,
-    pushadd_to_gateway,    # FIXED
     CollectorRegistry,
 )
 
@@ -57,6 +56,7 @@ def _load_model_from_s3():
     obj = s3.get_object(Bucket=bucket, Key=key)
     body = io.BytesIO(obj["Body"].read())
 
+    # SageMaker-style model.tar.gz
     if key.endswith(".tar.gz"):
         with tarfile.open(fileobj=body, mode="r:gz") as tar:
             with tempfile.TemporaryDirectory() as td:
@@ -72,6 +72,7 @@ def _load_model_from_s3():
 
                 return joblib.load(joblib_path)
 
+    # Plain .joblib
     with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as f:
         f.write(body.getvalue())
         return joblib.load(f.name)
@@ -88,21 +89,29 @@ def _load_baseline_stats(csv_path: str):
     df = pd.read_csv(csv_path)
     print(f"📊 Loaded training baseline from {csv_path} with cols: {df.columns.tolist()}")
 
-    stats = {}
+    stats: Dict[str, Dict[str, Any]] = {}
+
     for col in df.columns:
+        # Skip label column
         if col.lower() in {"income", "target"}:
             continue
 
         s = df[col].dropna()
+        if s.empty:
+            continue
 
         if pd.api.types.is_numeric_dtype(s):
+            # quantile-based bin edges
             qs = [i / PSI_NUM_BINS for i in range(PSI_NUM_BINS + 1)]
             edges = sorted(set(float(x) for x in s.quantile(qs).values))
             if len(edges) < 2:
                 continue
 
             ref_counts, _ = np.histogram(s, bins=edges)
-            ref_props = (ref_counts / ref_counts.sum()).tolist()
+            total = ref_counts.sum()
+            if total == 0:
+                continue
+            ref_props = (ref_counts / total).tolist()
 
             stats[col] = {
                 "type": "numeric",
@@ -111,7 +120,10 @@ def _load_baseline_stats(csv_path: str):
             }
         else:
             freq = s.value_counts(normalize=True)
-            stats[col] = {"type": "categorical", "ref": freq.to_dict()}
+            stats[col] = {
+                "type": "categorical",
+                "ref": freq.to_dict(),
+            }
 
     print(f"✅ Built baseline PSI stats for features: {list(stats.keys())}")
     return stats
@@ -123,24 +135,29 @@ def _psi_numeric(ref_props, cur_props):
         pr = max(float(pr), PSI_EPS)
         pc = max(float(pc), PSI_EPS)
         psi += (pr - pc) * math.log(pr / pc)
-    return psi
+    return float(psi)
 
 
-def _psi_categorical(ref_dict, cur_dict):
+def _psi_categorical(ref_dict: Dict[str, float], cur_dict: Dict[str, float]):
     psi = 0.0
     categories = set(ref_dict.keys()) | set(cur_dict.keys())
     for cat in categories:
-        pr = max(ref_dict.get(cat, 0.0), PSI_EPS)
-        pc = max(cur_dict.get(cat, 0.0), PSI_EPS)
+        pr = max(float(ref_dict.get(cat, 0.0)), PSI_EPS)
+        pc = max(float(cur_dict.get(cat, 0.0)), PSI_EPS)
         psi += (pr - pc) * math.log(pr / pc)
-    return psi
+    return float(psi)
 
 
 def compute_drift(df: pd.DataFrame):
+    """
+    Compute PSI per feature vs training baseline and a global score
+    (max PSI across features).
+    """
     if not _BASELINE_STATS:
         return 0.0, {}
 
-    psi_by_feature = {}
+    psi_by_feature: Dict[str, float] = {}
+
     for col, meta in _BASELINE_STATS.items():
         if col not in df.columns:
             continue
@@ -154,11 +171,13 @@ def compute_drift(df: pd.DataFrame):
             ref_props = meta["ref"]
 
             cur_counts, _ = np.histogram(s, bins=edges)
-            cur_props = (cur_counts / cur_counts.sum()).tolist()
+            total = cur_counts.sum()
+            if total == 0:
+                continue
+            cur_props = (cur_counts / total).tolist()
 
             n = min(len(ref_props), len(cur_props))
             psi = _psi_numeric(ref_props[:n], cur_props[:n])
-
         else:
             cur_freq = s.value_counts(normalize=True)
             psi = _psi_categorical(meta["ref"], cur_freq.to_dict())
@@ -197,7 +216,7 @@ class PredictRequest(BaseModel):
 
 
 # -------------------------------------------------
-# Prometheus Metrics (in-process)
+# Prometheus Metrics (in-process / scraped)
 # -------------------------------------------------
 PREDICTION_COUNTER = Counter(
     "adult_income_prediction_count",
@@ -206,7 +225,7 @@ PREDICTION_COUNTER = Counter(
 
 DRIFT_SCORE = Gauge(
     "adult_income_drift_score",
-    "Global drift score",
+    "Global drift score (max PSI across features)",
 )
 
 LABEL_COUNTER = Counter(
@@ -217,7 +236,7 @@ LABEL_COUNTER = Counter(
 
 FEATURE_PSI = Gauge(
     "adult_income_feature_psi",
-    "PSI per feature",
+    "PSI per feature vs training baseline",
     ["feature"],
 )
 
@@ -266,12 +285,15 @@ def predict(request: PredictRequest):
     df = pd.DataFrame(records)
     print("Incoming DF:", df.columns.tolist())
 
+    # Model prediction
     preds = _model.predict(df).tolist()
 
+    # Drift / PSI
     global_psi, psi_by_feature = compute_drift(df)
 
-    # Update in-process metrics
+    # --- Update in-process metrics (for /metrics scrape) ---
     DRIFT_SCORE.set(global_psi)
+
     for feat, val in psi_by_feature.items():
         FEATURE_PSI.labels(feature=feat).set(val)
 
@@ -280,45 +302,54 @@ def predict(request: PredictRequest):
 
     PREDICTION_COUNTER.inc(len(preds))
 
-    # ----------------------------------------------------
-    # FIXED PUSHGATEWAY (NOW WORKS WITH GRAFANA)
-    # ----------------------------------------------------
+    # --- Push snapshot to Pushgateway (separate registry) ---
     try:
         registry = CollectorRegistry()
 
-        # Use ONLY gauges for pushgateway (additive)
-        g_drift = Gauge("adult_income_drift_score", "drift", registry=registry)
-        g_preds = Gauge("adult_income_prediction_count", "total preds", registry=registry)
+        g_drift = Gauge(
+            "adult_income_drift_score",
+            "Global drift score (max PSI across features)",
+            registry=registry,
+        )
+        g_preds = Gauge(
+            "adult_income_prediction_count",
+            "Total number of predictions served",
+            registry=registry,
+        )
+        g_feat = Gauge(
+            "adult_income_feature_psi",
+            "PSI per feature vs training baseline",
+            ["feature"],
+            registry=registry,
+        )
+        g_label = Gauge(
+            "adult_income_prediction_by_label",
+            "Prediction count by label",
+            ["label"],
+            registry=registry,
+        )
 
+        # Use absolute values from in-process metrics so Prometheus
+        # sees a monotonically increasing / stable series.
         g_drift.set(global_psi)
         g_preds.set(PREDICTION_COUNTER._value.get())
 
-        # Feature PSI
         for feat, val in psi_by_feature.items():
-            g_feat = Gauge("adult_income_feature_psi",
-                           "Feature PSI",
-                           ["feature"],
-                           registry=registry)
             g_feat.labels(feature=feat).set(val)
 
-        # Label counts
-        g_label = Gauge("adult_income_prediction_by_label",
-                        "count by label",
-                        ["label"],
-                        registry=registry)
+        for label_tuple, metric in LABEL_COUNTER._metrics.items():
+            (label,) = label_tuple
+            g_label.labels(label=label).set(metric._value.get())
 
-        for label, metric in LABEL_COUNTER._metrics.items():
-            g_label.labels(label=label[0]).set(metric._value.get())
-
-        # THIS IS THE FIX — USE pushadd!
-        pushadd_to_gateway(PUSHGATEWAY_URL,
-                           job="adult_income_api",
-                           registry=registry)
-
-        print(f"📡 Metrics pushed!!")
+        push_to_gateway(
+            PUSHGATEWAY_URL,
+            job="adult_income_api",
+            registry=registry,
+        )
+        print(f"📡 Metrics pushed to {PUSHGATEWAY_URL}")
 
     except Exception as e:
-        print("⚠️ Pushgateway error:", e)
+        print(f"⚠️ Pushgateway error: {e}")
 
     return {
         "predictions": preds,
