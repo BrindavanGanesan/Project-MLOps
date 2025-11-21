@@ -19,6 +19,7 @@ from prometheus_client import (
     generate_latest,
     CONTENT_TYPE_LATEST,
     push_to_gateway,
+    pushadd_to_gateway,    # FIXED
     CollectorRegistry,
 )
 
@@ -28,9 +29,7 @@ app = FastAPI(title="Adult Income Classifier", version="3.0")
 # ------------------ ENV VARS ---------------------
 MODEL_S3_URI = os.getenv("MODEL_S3_URI")
 AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
-
 TRAINING_CSV_PATH = os.getenv("TRAINING_CSV_PATH", "/app/data/adult.csv")
-
 PUSHGATEWAY_URL = os.getenv("PUSHGATEWAY_URL", "http://108.130.158.94:9091")
 
 PSI_NUM_BINS = int(os.getenv("PSI_NUM_BINS", "10"))
@@ -62,8 +61,8 @@ def _load_model_from_s3():
         with tarfile.open(fileobj=body, mode="r:gz") as tar:
             with tempfile.TemporaryDirectory() as td:
                 tar.extractall(td)
-
                 joblib_path = os.path.join(td, "model.joblib")
+
                 if not os.path.exists(joblib_path):
                     for m in tar.getmembers():
                         if m.name.endswith(".joblib"):
@@ -81,7 +80,7 @@ def _load_model_from_s3():
 # -------------------------------------------------
 # Baseline PSI stats
 # -------------------------------------------------
-def _load_baseline_stats(csv_path: str) -> Dict[str, Dict[str, Any]]:
+def _load_baseline_stats(csv_path: str):
     if not os.path.exists(csv_path):
         print(f"⚠️ Baseline CSV not found at {csv_path}")
         return {}
@@ -90,7 +89,6 @@ def _load_baseline_stats(csv_path: str) -> Dict[str, Dict[str, Any]]:
     print(f"📊 Loaded training baseline from {csv_path} with cols: {df.columns.tolist()}")
 
     stats = {}
-
     for col in df.columns:
         if col.lower() in {"income", "target"}:
             continue
@@ -104,8 +102,7 @@ def _load_baseline_stats(csv_path: str) -> Dict[str, Dict[str, Any]]:
                 continue
 
             ref_counts, _ = np.histogram(s, bins=edges)
-            total = ref_counts.sum()
-            ref_props = (ref_counts / total).tolist()
+            ref_props = (ref_counts / ref_counts.sum()).tolist()
 
             stats[col] = {
                 "type": "numeric",
@@ -114,10 +111,7 @@ def _load_baseline_stats(csv_path: str) -> Dict[str, Dict[str, Any]]:
             }
         else:
             freq = s.value_counts(normalize=True)
-            stats[col] = {
-                "type": "categorical",
-                "ref": freq.to_dict(),
-            }
+            stats[col] = {"type": "categorical", "ref": freq.to_dict()}
 
     print(f"✅ Built baseline PSI stats for features: {list(stats.keys())}")
     return stats
@@ -132,7 +126,7 @@ def _psi_numeric(ref_props, cur_props):
     return psi
 
 
-def _psi_categorical(ref_dict: Dict[str, float], cur_dict: Dict[str, float]):
+def _psi_categorical(ref_dict, cur_dict):
     psi = 0.0
     categories = set(ref_dict.keys()) | set(cur_dict.keys())
     for cat in categories:
@@ -147,7 +141,6 @@ def compute_drift(df: pd.DataFrame):
         return 0.0, {}
 
     psi_by_feature = {}
-
     for col, meta in _BASELINE_STATS.items():
         if col not in df.columns:
             continue
@@ -204,23 +197,27 @@ class PredictRequest(BaseModel):
 
 
 # -------------------------------------------------
-# Prometheus Metrics
+# Prometheus Metrics (in-process)
 # -------------------------------------------------
 PREDICTION_COUNTER = Counter(
-    "adult_income_prediction_count", "Total number of predictions served"
+    "adult_income_prediction_count",
+    "Total number of predictions served",
 )
+
 DRIFT_SCORE = Gauge(
     "adult_income_drift_score",
-    "Global drift score (max PSI across features)",
+    "Global drift score",
 )
+
 LABEL_COUNTER = Counter(
     "adult_income_prediction_by_label",
     "Prediction count by label",
     ["label"],
 )
+
 FEATURE_PSI = Gauge(
     "adult_income_feature_psi",
-    "PSI per feature vs training baseline",
+    "PSI per feature",
     ["feature"],
 )
 
@@ -238,7 +235,7 @@ def startup():
 
 
 # -------------------------------------------------
-# Health Check
+# Health
 # -------------------------------------------------
 @app.get("/ping")
 def ping():
@@ -246,16 +243,15 @@ def ping():
 
 
 # -------------------------------------------------
-# Metrics Endpoint
+# Metrics endpoint
 # -------------------------------------------------
 @app.get("/metrics")
 def metrics():
-    data = generate_latest()
-    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # -------------------------------------------------
-# Prediction
+# Prediction Endpoint
 # -------------------------------------------------
 @app.post("/predict")
 def predict(request: PredictRequest):
@@ -268,52 +264,62 @@ def predict(request: PredictRequest):
     ]
 
     df = pd.DataFrame(records)
-    print("Incoming DF columns:", df.columns.tolist())
+    print("Incoming DF:", df.columns.tolist())
 
     preds = _model.predict(df).tolist()
 
     global_psi, psi_by_feature = compute_drift(df)
-    DRIFT_SCORE.set(round(global_psi, 6))
 
-    for feat, psi_value in psi_by_feature.items():
-        FEATURE_PSI.labels(feature=feat).set(round(psi_value, 6))
+    # Update in-process metrics
+    DRIFT_SCORE.set(global_psi)
+    for feat, val in psi_by_feature.items():
+        FEATURE_PSI.labels(feature=feat).set(val)
 
     for p in preds:
         LABEL_COUNTER.labels(label=str(p)).inc()
 
     PREDICTION_COUNTER.inc(len(preds))
 
-    # PushGateway
+    # ----------------------------------------------------
+    # FIXED PUSHGATEWAY (NOW WORKS WITH GRAFANA)
+    # ----------------------------------------------------
     try:
         registry = CollectorRegistry()
 
-        drift_gauge = Gauge("adult_income_drift_score", "Drift score", registry=registry)
-        pred_counter = Counter("adult_income_prediction_count", "Total preds", registry=registry)
-        label_counter = Counter(
-            "adult_income_prediction_by_label",
-            "Prediction count by label",
-            ["label"],
-            registry=registry,
-        )
+        # Use ONLY gauges for pushgateway (additive)
+        g_drift = Gauge("adult_income_drift_score", "drift", registry=registry)
+        g_preds = Gauge("adult_income_prediction_count", "total preds", registry=registry)
 
-        drift_gauge.set(global_psi)
-        pred_counter.inc(len(preds))
-        for p in preds:
-            label_counter.labels(label=str(p)).inc()
+        g_drift.set(global_psi)
+        g_preds.set(PREDICTION_COUNTER._value.get())
 
-        push_to_gateway(
-            PUSHGATEWAY_URL,
-            job="adult_income_api",
-            registry=registry
-        )
-        print(f"📡 Metrics pushed to {PUSHGATEWAY_URL}")
+        # Feature PSI
+        for feat, val in psi_by_feature.items():
+            g_feat = Gauge("adult_income_feature_psi",
+                           "Feature PSI",
+                           ["feature"],
+                           registry=registry)
+            g_feat.labels(feature=feat).set(val)
+
+        # Label counts
+        g_label = Gauge("adult_income_prediction_by_label",
+                        "count by label",
+                        ["label"],
+                        registry=registry)
+
+        for label, metric in LABEL_COUNTER._metrics.items():
+            g_label.labels(label=label[0]).set(metric._value.get())
+
+        # THIS IS THE FIX — USE pushadd!
+        pushadd_to_gateway(PUSHGATEWAY_URL,
+                           job="adult_income_api",
+                           registry=registry)
+
+        print(f"📡 Metrics pushed!!")
 
     except Exception as e:
-        print(f"⚠️ PushGateway push failed: {e}")
+        print("⚠️ Pushgateway error:", e)
 
-    # ------------------------
-    # FINAL RETURN (critical!)
-    # ------------------------
     return {
         "predictions": preds,
         "global_psi": global_psi,
