@@ -209,16 +209,11 @@ jobs:
             --query "services[0].deployments"
 
 
-      # 🔍 STEP 5 — Smoke Test
-      - name: Fetch ECS public IP
-        id: ecs-ip
-        run: |
-          ECS_TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --region $AWS_REGION --query "taskArns[0]" --output text)
-          ENI_ID=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $ECS_TASK_ARN --region $AWS_REGION --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
-          ECS_PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI_ID --region $AWS_REGION --query "NetworkInterfaces[0].Association.PublicIp" --output text)
-          echo "ECS_PUBLIC_IP=$ECS_PUBLIC_IP" >> $GITHUB_ENV
+      # 🔍 STEP 5 — Smoke Test (Updated for NLB)
 
       - name: Smoke test
         run: |
-          echo "Hitting http://$ECS_PUBLIC_IP:8080/healthz"
-          curl -f "http://$ECS_PUBLIC_IP:8080/healthz"
+          HEALTH_URL="http://iris-nlb-a5756f62e3cf9fb9.elb.eu-west-1.amazonaws.com/ping"
+          echo "Hitting $HEALTH_URL"
+          curl -f "$HEALTH_URL"
+
