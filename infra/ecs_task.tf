@@ -17,7 +17,7 @@ resource "aws_ecs_task_definition" "iris_task" {
   container_definitions = jsonencode([
     {
       name      = "iris-api"
-      image     = "353671347542.dkr.ecr.eu-west-1.amazonaws.com/iris-api:v13"
+      image     = "353671347542.dkr.ecr.eu-west-1.amazonaws.com/iris-api:v14"
       essential = true
 
       command = [

@@ -1,11 +1,9 @@
 # app/main.py
-
 import os
 import io
 import tarfile
 import tempfile
 import math
-import time
 from typing import List, Dict, Any
 
 import boto3
@@ -20,12 +18,12 @@ from prometheus_client import (
     Counter,
     generate_latest,
     CONTENT_TYPE_LATEST,
+    push_to_gateway,
     CollectorRegistry,
-    pushadd_to_gateway,
 )
 
 # ------------------ FastAPI App ------------------
-app = FastAPI(title="Adult Income Classifier", version="4.0")
+app = FastAPI(title="Adult Income Classifier", version="3.0")
 
 # ------------------ ENV VARS ---------------------
 MODEL_S3_URI = os.getenv("MODEL_S3_URI")
@@ -40,8 +38,9 @@ PSI_EPS = 1e-6
 _model = None
 _BASELINE_STATS: Dict[str, Dict[str, Any]] = {}
 
+
 # -------------------------------------------------
-# S3 Model Loader
+# S3 Utilities
 # -------------------------------------------------
 def _parse_s3(uri: str):
     assert uri.startswith("s3://"), f"Invalid S3 URI: {uri}"
@@ -57,6 +56,7 @@ def _load_model_from_s3():
     obj = s3.get_object(Bucket=bucket, Key=key)
     body = io.BytesIO(obj["Body"].read())
 
+    # SageMaker-style model.tar.gz
     if key.endswith(".tar.gz"):
         with tarfile.open(fileobj=body, mode="r:gz") as tar:
             with tempfile.TemporaryDirectory() as td:
@@ -64,18 +64,17 @@ def _load_model_from_s3():
                 joblib_path = os.path.join(td, "model.joblib")
 
                 if not os.path.exists(joblib_path):
-                    for member in tar.getmembers():
-                        if member.name.endswith(".joblib"):
-                            tar.extract(member, td)
-                            joblib_path = os.path.join(td, member.name)
+                    for m in tar.getmembers():
+                        if m.name.endswith(".joblib"):
+                            tar.extract(m, td)
+                            joblib_path = os.path.join(td, m.name)
                             break
 
-                print("✅ Loaded model.joblib from tar archive")
                 return joblib.load(joblib_path)
 
+    # Plain .joblib
     with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as f:
         f.write(body.getvalue())
-        print("✅ Loaded model.joblib directly")
         return joblib.load(f.name)
 
 
@@ -84,21 +83,25 @@ def _load_model_from_s3():
 # -------------------------------------------------
 def _load_baseline_stats(csv_path: str):
     if not os.path.exists(csv_path):
-        print("⚠️ Baseline CSV missing!")
+        print(f"⚠️ Baseline CSV not found at {csv_path}")
         return {}
 
     df = pd.read_csv(csv_path)
-    print(f"📊 Loaded baseline columns: {df.columns.tolist()}")
+    print(f"📊 Loaded training baseline from {csv_path} with cols: {df.columns.tolist()}")
 
-    stats = {}
+    stats: Dict[str, Dict[str, Any]] = {}
 
     for col in df.columns:
+        # Skip label column
         if col.lower() in {"income", "target"}:
             continue
 
         s = df[col].dropna()
+        if s.empty:
+            continue
 
         if pd.api.types.is_numeric_dtype(s):
+            # quantile-based bin edges
             qs = [i / PSI_NUM_BINS for i in range(PSI_NUM_BINS + 1)]
             edges = sorted(set(float(x) for x in s.quantile(qs).values))
             if len(edges) < 2:
@@ -106,45 +109,54 @@ def _load_baseline_stats(csv_path: str):
 
             ref_counts, _ = np.histogram(s, bins=edges)
             total = ref_counts.sum()
+            if total == 0:
+                continue
             ref_props = (ref_counts / total).tolist()
 
-            stats[col] = {"type": "numeric", "bins": edges, "ref": ref_props}
-
+            stats[col] = {
+                "type": "numeric",
+                "bins": edges,
+                "ref": ref_props,
+            }
         else:
             freq = s.value_counts(normalize=True)
-            stats[col] = {"type": "categorical", "ref": freq.to_dict()}
+            stats[col] = {
+                "type": "categorical",
+                "ref": freq.to_dict(),
+            }
 
-    print(f"✅ PSI baseline built for {len(stats)} features")
+    print(f"✅ Built baseline PSI stats for features: {list(stats.keys())}")
     return stats
 
 
-# -------------------------------------------------
-# PSI Computation
-# -------------------------------------------------
 def _psi_numeric(ref_props, cur_props):
     psi = 0.0
     for pr, pc in zip(ref_props, cur_props):
         pr = max(float(pr), PSI_EPS)
         pc = max(float(pc), PSI_EPS)
         psi += (pr - pc) * math.log(pr / pc)
-    return psi
+    return float(psi)
 
 
-def _psi_categorical(ref_dict, cur_dict):
+def _psi_categorical(ref_dict: Dict[str, float], cur_dict: Dict[str, float]):
     psi = 0.0
-    cats = set(ref_dict.keys()) | set(cur_dict.keys())
-    for c in cats:
-        pr = max(ref_dict.get(c, 0.0), PSI_EPS)
-        pc = max(cur_dict.get(c, 0.0), PSI_EPS)
+    categories = set(ref_dict.keys()) | set(cur_dict.keys())
+    for cat in categories:
+        pr = max(float(ref_dict.get(cat, 0.0)), PSI_EPS)
+        pc = max(float(cur_dict.get(cat, 0.0)), PSI_EPS)
         psi += (pr - pc) * math.log(pr / pc)
-    return psi
+    return float(psi)
 
 
 def compute_drift(df: pd.DataFrame):
+    """
+    Compute PSI per feature vs training baseline and a global score
+    (max PSI across features).
+    """
     if not _BASELINE_STATS:
         return 0.0, {}
 
-    psi_by_feature = {}
+    psi_by_feature: Dict[str, float] = {}
 
     for col, meta in _BASELINE_STATS.items():
         if col not in df.columns:
@@ -159,14 +171,16 @@ def compute_drift(df: pd.DataFrame):
             ref_props = meta["ref"]
 
             cur_counts, _ = np.histogram(s, bins=edges)
-            cur_props = (cur_counts / cur_counts.sum()).tolist()
+            total = cur_counts.sum()
+            if total == 0:
+                continue
+            cur_props = (cur_counts / total).tolist()
 
             n = min(len(ref_props), len(cur_props))
             psi = _psi_numeric(ref_props[:n], cur_props[:n])
-
         else:
-            freq = s.value_counts(normalize=True)
-            psi = _psi_categorical(meta["ref"], freq.to_dict())
+            cur_freq = s.value_counts(normalize=True)
+            psi = _psi_categorical(meta["ref"], cur_freq.to_dict())
 
         psi_by_feature[col] = float(psi)
 
@@ -202,12 +216,29 @@ class PredictRequest(BaseModel):
 
 
 # -------------------------------------------------
-# In-Process Prometheus Metrics
+# Prometheus Metrics (in-process / scraped)
 # -------------------------------------------------
-PREDICTION_COUNTER = Counter("adult_income_prediction_count", "Total predictions served")
-DRIFT_SCORE = Gauge("adult_income_drift_score", "Global PSI drift score")
-LABEL_COUNTER = Counter("adult_income_prediction_by_label", "Predictions by label", ["label"])
-FEATURE_PSI = Gauge("adult_income_feature_psi", "Feature-level PSI", ["feature"])
+PREDICTION_COUNTER = Counter(
+    "adult_income_prediction_count",
+    "Total number of predictions served",
+)
+
+DRIFT_SCORE = Gauge(
+    "adult_income_drift_score",
+    "Global drift score (max PSI across features)",
+)
+
+LABEL_COUNTER = Counter(
+    "adult_income_prediction_by_label",
+    "Prediction count by label",
+    ["label"],
+)
+
+FEATURE_PSI = Gauge(
+    "adult_income_feature_psi",
+    "PSI per feature vs training baseline",
+    ["feature"],
+)
 
 
 # -------------------------------------------------
@@ -217,7 +248,7 @@ FEATURE_PSI = Gauge("adult_income_feature_psi", "Feature-level PSI", ["feature"]
 def startup():
     global _model, _BASELINE_STATS
     _model = _load_model_from_s3()
-    print("🚀 Model loaded successfully")
+    print("🚀 Model is ready!")
 
     _BASELINE_STATS = _load_baseline_stats(TRAINING_CSV_PATH)
 
@@ -244,83 +275,81 @@ def metrics():
 @app.post("/predict")
 def predict(request: PredictRequest):
 
-    rows = [
-        (x.model_dump(by_alias=True) if hasattr(x, "model_dump") else x.dict(by_alias=True))
-        for x in request.records
+    records = [
+        (r.model_dump(by_alias=True)
+         if hasattr(r, "model_dump")
+         else r.dict(by_alias=True))
+        for r in request.records
     ]
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(records)
     print("Incoming DF:", df.columns.tolist())
 
+    # Model prediction
     preds = _model.predict(df).tolist()
 
-    # Drift Computation
+    # Drift / PSI
     global_psi, psi_by_feature = compute_drift(df)
 
+    # --- Update in-process metrics (for /metrics scrape) ---
     DRIFT_SCORE.set(global_psi)
+
     for feat, val in psi_by_feature.items():
         FEATURE_PSI.labels(feature=feat).set(val)
 
-    # Increment counters
     for p in preds:
         LABEL_COUNTER.labels(label=str(p)).inc()
 
     PREDICTION_COUNTER.inc(len(preds))
 
-    # -------------------------------------------------
-    # FIXED PUSHGATEWAY — TIME SERIES ENABLED
-    # -------------------------------------------------
+    # --- Push snapshot to Pushgateway (separate registry) ---
     try:
         registry = CollectorRegistry()
 
-        # We rebuild ONLY the values we want to push
-        g_drift = Gauge("adult_income_drift_score", "Global drift score", registry=registry)
-        g_preds = Gauge("adult_income_prediction_count", "Total preds", registry=registry)
-
-        g_drift.set(global_psi)
-        g_preds.set(PREDICTION_COUNTER._value.get())
-
-        # Feature PSI
+        g_drift = Gauge(
+            "adult_income_drift_score",
+            "Global drift score (max PSI across features)",
+            registry=registry,
+        )
+        g_preds = Gauge(
+            "adult_income_prediction_count_total",
+            "Total number of predictions served",
+            registry=registry,
+        )
         g_feat = Gauge(
             "adult_income_feature_psi",
-            "Feature PSI metric",
+            "PSI per feature vs training baseline",
             ["feature"],
             registry=registry,
         )
-
-        for feat, val in psi_by_feature.items():
-            g_feat.labels(feature=feat).set(val)
-
-        # Label count
         g_label = Gauge(
-            "adult_income_prediction_by_label",
-            "Pred count by label",
+            "adult_income_prediction_by_label_total",
+            "Prediction count by label",
             ["label"],
             registry=registry,
         )
 
-        for lbl, metric in LABEL_COUNTER._metrics.items():
-            g_label.labels(label=lbl[0]).set(metric._value.get())
+        # Use absolute values from in-process metrics so Prometheus
+        # sees a monotonically increasing / stable series.
+        g_drift.set(global_psi)
+        g_preds.set(PREDICTION_COUNTER._value.get())
 
-        # --------------------------
-        # CRITICAL: UNIQUE TIMESTAMP
-        # --------------------------
-        grouping_key = {
-            "instance": "ecs_api",
-            "ts": str(int(time.time()))  # new timestamp ensures time-series!
-        }
+        for feat, val in psi_by_feature.items():
+            g_feat.labels(feature=feat).set(val)
 
-        pushadd_to_gateway(
+        for label_tuple, metric in LABEL_COUNTER._metrics.items():
+            (label,) = label_tuple
+            g_label.labels(label=label).set(metric._value.get())
+
+        push_to_gateway(
             PUSHGATEWAY_URL,
             job="adult_income_api",
             registry=registry,
-            grouping_key=grouping_key
         )
-
-        print(f"📡 Metrics pushed to Pushgateway ({PUSHGATEWAY_URL})")
+        print(f"📡 Metrics pushed to {PUSHGATEWAY_URL}")
 
     except Exception as e:
-        print("⚠️ Pushgateway error:", e)
+        print(f"⚠️ Pushgateway error: {e}")
 
     return {
         "predictions": preds,
