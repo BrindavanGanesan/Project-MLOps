@@ -39,7 +39,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 🔐 Configure AWS credentials
+      
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -65,7 +65,7 @@ jobs:
           dvc pull data/adult.csv.dvc
 
 
-      # 🧪 STEP 0 — LIGHTWEIGHT TESTS
+      
       - name: Run quick sanity tests
         run: |
           echo "Running lightweight tests..."
@@ -73,7 +73,7 @@ jobs:
           pytest -q --maxfail=1 --disable-warnings || echo "⚠️ Tests failed or skipped — continuing anyway."
 
 
-      # 🧠 Step 1 — Retrain Model via DVC + SageMaker
+      
       - name: Run DVC pipeline
         run: dvc repro
 
@@ -85,7 +85,7 @@ jobs:
           aws s3 cp artifacts/metrics/metrics.json s3://thebrowntiger/mlops-metrics/metrics-$(date +%Y%m%d-%H%M%S).json
 
 
-      # ✅ STEP 1.5 — METRIC GATE (UPDATED)
+      
       - name: Compare metrics with champion
         run: |
           echo "🔍 Comparing new model against champion..."
@@ -130,7 +130,7 @@ jobs:
           echo "🏆 New model promoted to champion!"
 
 
-      # 🏷 STEP 2 — MLflow Registration
+      
       - name: Register latest model in MLflow
         run: |
           echo "Registering model..."
@@ -172,7 +172,7 @@ jobs:
           EOF
 
 
-      # 🐳 STEP 3 — Build & Push Docker Image
+      
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -191,7 +191,7 @@ jobs:
           docker push ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
 
 
-      # 🚀 STEP 4 — Trigger ECS Deployment
+      
       - name: Force ECS service to deploy new image
         run: |
           aws ecs update-service \
@@ -209,7 +209,7 @@ jobs:
             --query "services[0].deployments"
 
 
-      # 🔍 STEP 5 — Smoke Test (Updated for NLB)
+      
 
       - name: Smoke test
         run: |
